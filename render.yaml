@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: dev-lively-backend
+    runtime: python
+    region: singapore
+    plan: starter
+    branch: development
+    buildCommand: pip install -r requirements.txt && alembic upgrade head
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.6"
+      - key: APP_NAME
+        value: Lively API
+      - key: APP_ENV
+        value: development
+      - key: DEBUG
+        value: "false"
+      - key: API_V1_PREFIX
+        value: /api/v1
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "10080"
+      - key: VERIFICATION_CODE_EXPIRE_MINUTES
+        value: "15"
+      - key: VERIFICATION_CODE_LENGTH
+        value: "4"
+      - key: INCLUDE_VERIFICATION_CODE_IN_RESPONSE
+        value: "true"
+      - key: BREVO_SENDER_NAME
+        value: Lively
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_SENDER_EMAIL
+        sync: false
