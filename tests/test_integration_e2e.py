@@ -67,10 +67,11 @@ class TestFullE2EAuthFlow:
         assert blocked.json()["emailVerified"] is False
 
         # 5. Verify email
-        verify = verify_user(client, code)
+        verify = verify_user(client, tracked_email, code)
         assert verify["success"] is True
         assert verify["user"]["emailVerified"] is True
         assert verify["code"] == code
+        assert verify["token"]
 
         user = get_user_from_db(tracked_email)
         assert user is not None
@@ -108,10 +109,13 @@ class TestFullE2EAuthFlow:
         assert new_code != old_code
 
         # Old code invalidated
-        old_verify = client.post("/api/v1/auth/email/verify", json={"code": old_code})
+        old_verify = client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": tracked_email, "code": old_code},
+        )
         assert old_verify.status_code == 400
 
-        verify_user(client, new_code)
+        verify_user(client, tracked_email, new_code)
         login_user(client, tracked_email)
 
 
@@ -167,7 +171,7 @@ class TestEmailVerificationIntegration:
         assert body.get("verificationCode") is None
 
         code_from_db = get_latest_code_from_db(tracked_email)
-        verify = verify_user(client, code_from_db)
+        verify = verify_user(client, tracked_email, code_from_db)
         assert verify["user"]["emailVerified"] is True
 
         get_settings.cache_clear()
@@ -235,7 +239,7 @@ class TestEmailVerificationIntegration:
         signup = signup_user(client, tracked_email)
         code = signup["verificationCode"]
 
-        verify_user(client, code)
+        verify_user(client, tracked_email, code)
 
         db = SessionLocal()
         try:
@@ -273,9 +277,10 @@ class TestAPIContractShapes:
 
     def test_verify_response_contract(self, client, tracked_email) -> None:
         signup = signup_user(client, tracked_email)
-        body = verify_user(client, signup["verificationCode"])
-        required = {"success", "message", "code", "user"}
+        body = verify_user(client, tracked_email, signup["verificationCode"])
+        required = {"success", "message", "code", "token", "user", "children"}
         assert required.issubset(body.keys())
+        assert isinstance(body["children"], list)
 
     def test_resend_response_contract(self, client, tracked_email) -> None:
         signup_user(client, tracked_email)
@@ -288,7 +293,8 @@ class TestAPIContractShapes:
         assert {"success", "message", "verificationCode"}.issubset(body.keys())
 
     def test_409_duplicate_signup_contract(self, client, tracked_email) -> None:
-        signup_user(client, tracked_email)
+        signup = signup_user(client, tracked_email)
+        verify_user(client, tracked_email, signup["verificationCode"])
         response = client.post(
             "/api/v1/auth/signup",
             json={
@@ -342,7 +348,7 @@ class TestAcceptanceCriteria:
     def test_ac2_verify_email_with_valid_code(self, client, tracked_email) -> None:
         """AC2: valid verification code marks email as verified."""
         signup = signup_user(client, tracked_email)
-        verify = verify_user(client, signup["verificationCode"])
+        verify = verify_user(client, tracked_email, signup["verificationCode"])
 
         assert verify["user"]["emailVerified"] is True
         user = get_user_from_db(tracked_email)
@@ -424,7 +430,10 @@ class TestEdgeCases:
         finally:
             db.close()
 
-        response = client.post("/api/v1/auth/email/verify", json={"code": code})
+        response = client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": tracked_email, "code": code},
+        )
         assert response.status_code == 400
 
     def test_brevo_not_configured_still_signs_up(self, client, tracked_email) -> None:

@@ -37,14 +37,16 @@ class AuthService:
         email = payload.email.lower()
         existing = self.repo.get_user_by_email(email)
         if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "success": False,
-                    "message": "Email already exists",
-                    "emailExists": True,
-                },
-            )
+            if existing.email_verified:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "success": False,
+                        "message": "Email already exists",
+                        "emailExists": True,
+                    },
+                )
+            return self._resume_unverified_signup(existing, payload)
 
         first_name, last_name = split_full_name(payload.name)
         if not first_name:
@@ -68,13 +70,34 @@ class AuthService:
             accepted_terms=payload.accepted_terms,
         )
         self.repo.create_user(user)
+        return self._complete_signup(user)
+
+    def _resume_unverified_signup(self, user: User, payload: SignupRequest) -> SignupResponse:
+        first_name, last_name = split_full_name(payload.name)
+        if not first_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"success": False, "message": "Name is required"},
+            )
+        if not last_name:
+            last_name = first_name
+
+        user.user_type = UserType.PARENT if payload.guardian else UserType.GUARDIAN
+        user.first_name = first_name
+        user.last_name = last_name
+        user.password_hash = hash_password(payload.password)
+        user.accepted_terms = payload.accepted_terms
+        self.repo.flush()
+        return self._complete_signup(user)
+
+    def _complete_signup(self, user: User) -> SignupResponse:
         code = self._create_verification_code(user)
         self.repo.save()
         self.repo.refresh(user)
 
         self._send_verification_email(user=user, code=code)
 
-        response = SignupResponse(
+        return SignupResponse(
             success=True,
             message="Signup successful. Verification email sent.",
             emailExists=False,
@@ -82,7 +105,6 @@ class AuthService:
             user=user_to_public(user),
             verificationCode=code if self.settings.include_verification_code_in_response else None,
         )
-        return response
 
     def login(self, payload: LoginRequest) -> LoginResponse:
         email = payload.email.lower()
@@ -117,10 +139,7 @@ class AuthService:
         self.repo.update_last_login(user)
         self.repo.save()
 
-        token = create_access_token(
-            subject=user.id,
-            extra_claims={"email": user.email, "user_type": user.user_type.value},
-        )
+        token = self._create_access_token(user)
 
         return LoginResponse(
             success=True,
@@ -131,21 +150,29 @@ class AuthService:
         )
 
     def verify_email(self, payload: VerifyEmailRequest) -> VerifyEmailResponse:
-        if not payload.code or not payload.code.strip():
+        email = payload.email.lower().strip()
+        code = payload.code.strip()
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"success": False, "message": "Email is required"},
+            )
+        if not code:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={"success": False, "message": "Code is required"},
             )
 
-        verification = self.repo.get_active_code(payload.code.strip())
-        if not verification:
+        user = self.repo.get_user_by_email(email)
+        if not user:
+            # Same message as bad code to avoid confirming whether the email exists.
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={"success": False, "message": "Invalid or expired verification code"},
             )
 
-        user = self.repo.get_user_by_id(verification.user_id)
-        if not user:
+        verification = self.repo.get_active_code(user_id=user.id, code=code)
+        if not verification:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={"success": False, "message": "Invalid or expired verification code"},
@@ -154,14 +181,19 @@ class AuthService:
         self.repo.mark_code_used(verification)
         self.repo.mark_email_verified(user)
         self.repo.invalidate_active_codes(user.id)
+        self.repo.update_last_login(user)
         self.repo.save()
         self.repo.refresh(user)
+
+        token = self._create_access_token(user)
 
         return VerifyEmailResponse(
             success=True,
             message="Email verified successfully",
-            code=payload.code.strip(),
+            code=code,
+            token=token,
             user=user_to_public(user),
+            children=[],
         )
 
     def resend_verification(self, payload: ResendVerificationRequest) -> ResendVerificationResponse:
@@ -232,3 +264,9 @@ class AuthService:
         length = self.settings.verification_code_length
         upper = 10**length
         return str(secrets.randbelow(upper)).zfill(length)
+
+    def _create_access_token(self, user: User) -> str:
+        return create_access_token(
+            subject=user.id,
+            extra_claims={"email": user.email, "user_type": user.user_type.value},
+        )
