@@ -29,6 +29,9 @@ class AuthRepository:
     def save(self) -> None:
         self.db.commit()
 
+    def flush(self) -> None:
+        self.db.flush()
+
     def refresh(self, instance: object) -> None:
         self.db.refresh(instance)
 
@@ -50,11 +53,12 @@ class AuthRepository:
         self.db.flush()
         return code
 
-    def get_active_code(self, code: str) -> EmailVerificationCode | None:
+    def get_active_code(self, *, user_id: UUID, code: str) -> EmailVerificationCode | None:
         now = datetime.now(timezone.utc)
         stmt = (
             select(EmailVerificationCode)
             .where(
+                EmailVerificationCode.user_id == user_id,
                 EmailVerificationCode.code == code,
                 EmailVerificationCode.is_used.is_(False),
                 EmailVerificationCode.expires_at >= now,

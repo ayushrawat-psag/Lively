@@ -8,7 +8,7 @@ FastAPI backend for the Lively mobile app (MVP auth).
 |--------|----------|-------------|
 | `POST` | `/api/v1/auth/signup` | Create parent account + send verification code |
 | `POST` | `/api/v1/auth/login` | Authenticate and return JWT |
-| `POST` | `/api/v1/auth/email/verify` | Verify email with code |
+| `POST` | `/api/v1/auth/email/verify` | Verify email with code; returns JWT (no separate login needed) |
 | `POST` | `/api/v1/auth/email/resend` | Resend verification code |
 | `GET` | `/health` | Health check |
 
@@ -98,6 +98,15 @@ Prerequisites:
 
 `render.yaml` in the repo root defines this blueprint.
 
+### Live dev URL
+
+- **API:** https://dev-lively-backend.onrender.com
+- **Health:** https://dev-lively-backend.onrender.com/health
+- **Swagger:** https://dev-lively-backend.onrender.com/docs
+- **Dashboard:** https://dashboard.render.com/web/srv-d9cubg1kh4rs73cccec0
+
+**GitHub repo:** https://github.com/ayushrawat-psag/Lively (`development` branch)
+
 ### Required env vars (set in Render dashboard)
 
 - `DATABASE_URL` — Neon Lively Dev connection string (`postgresql+psycopg2://...`)
@@ -142,8 +151,10 @@ Expected: `201` with `emailVerificationRequired: true` and (in dev) `verificatio
 ```powershell
 curl -X POST http://127.0.0.1:8000/api/v1/auth/email/verify `
   -H "Content-Type: application/json" `
-  -d '{"code":"1234"}'
+  -d '{"email":"john@example.com","code":"1234"}'
 ```
+
+Expected: `200` with `token`, `user`, and `children` (empty array). The app can use this JWT immediately — no separate login needed after signup + verify.
 
 ### Resend verification
 
@@ -153,7 +164,9 @@ curl -X POST http://127.0.0.1:8000/api/v1/auth/email/resend `
   -d '{"email":"john@example.com"}'
 ```
 
-### Login (after verification)
+### Login (returning users)
+
+Use login after the account is already verified (e.g. user closed the app post-verification, or a new device).
 
 ```powershell
 curl -X POST http://127.0.0.1:8000/api/v1/auth/login `
@@ -169,7 +182,9 @@ Returns `403` with `emailVerified: false`.
 
 ### Duplicate signup
 
-Returns `409` with `emailExists: true`.
+If the email is **already verified**, signup returns `409` with `emailExists: true` — use login instead.
+
+If the email exists but is **not yet verified** (e.g. user closed the app before entering the code), signup succeeds again: profile details are refreshed, a new verification code is sent, and the user can continue the verify flow.
 
 ## Project layout
 

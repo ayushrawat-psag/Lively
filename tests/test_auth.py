@@ -34,10 +34,52 @@ class TestSignup:
         finally:
             db.close()
 
-    def test_signup_duplicate_email_conflict(self, client, tracked_email, signup_payload) -> None:
+    def test_signup_duplicate_unverified_email_resends_code(
+        self, client, tracked_email, signup_payload
+    ) -> None:
         signup_payload["email"] = tracked_email
         first = client.post("/api/v1/auth/signup", json=signup_payload)
         assert first.status_code == 201
+        first_code = first.json()["verificationCode"]
+
+        signup_payload["name"] = "Jane Updated"
+        signup_payload["password"] = "NewPass1"
+        second = client.post("/api/v1/auth/signup", json=signup_payload)
+        assert second.status_code == 201
+        body = second.json()
+        assert body["success"] is True
+        assert body["emailExists"] is False
+        assert body["emailVerificationRequired"] is True
+        assert body["user"]["name"] == "Jane Updated"
+        assert body["verificationCode"]
+        assert body["verificationCode"] != first_code
+
+        db = SessionLocal()
+        try:
+            users = db.scalars(select(User).where(User.email == tracked_email)).all()
+            assert len(users) == 1
+            assert users[0].email_verified is False
+            assert users[0].full_name == "Jane Updated"
+        finally:
+            db.close()
+
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"email": tracked_email, "password": "NewPass1"},
+        )
+        assert login.status_code == 403
+
+    def test_signup_duplicate_verified_email_conflict(
+        self, client, tracked_email, signup_payload
+    ) -> None:
+        signup_payload["email"] = tracked_email
+        first = client.post("/api/v1/auth/signup", json=signup_payload)
+        assert first.status_code == 201
+        code = first.json()["verificationCode"]
+        client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": tracked_email, "code": code},
+        )
 
         second = client.post("/api/v1/auth/signup", json=signup_payload)
         assert second.status_code == 409
@@ -86,7 +128,10 @@ class TestLogin:
         signup = client.post("/api/v1/auth/signup", json=signup_payload).json()
         code = signup["verificationCode"]
 
-        verify = client.post("/api/v1/auth/email/verify", json={"code": code})
+        verify = client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": tracked_email, "code": code},
+        )
         assert verify.status_code == 200
 
         response = client.post(
@@ -104,7 +149,10 @@ class TestLogin:
     def test_login_invalid_password(self, client, tracked_email, signup_payload) -> None:
         signup_payload["email"] = tracked_email
         signup = client.post("/api/v1/auth/signup", json=signup_payload).json()
-        client.post("/api/v1/auth/email/verify", json={"code": signup["verificationCode"]})
+        client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": tracked_email, "code": signup["verificationCode"]},
+        )
 
         response = client.post(
             "/api/v1/auth/login",
@@ -133,17 +181,47 @@ class TestVerifyEmail:
         signup = client.post("/api/v1/auth/signup", json=signup_payload).json()
         code = signup["verificationCode"]
 
-        response = client.post("/api/v1/auth/email/verify", json={"code": code})
+        response = client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": tracked_email, "code": code},
+        )
         assert response.status_code == 200
         body = response.json()
         assert body["success"] is True
         assert body["code"] == code
+        assert body["token"]
         assert body["user"]["emailVerified"] is True
+        assert body["children"] == []
 
-    def test_verify_invalid_code(self, client) -> None:
-        response = client.post("/api/v1/auth/email/verify", json={"code": "0000"})
+    def test_verify_invalid_code(self, client, tracked_email, signup_payload) -> None:
+        signup_payload["email"] = tracked_email
+        client.post("/api/v1/auth/signup", json=signup_payload)
+        response = client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": tracked_email, "code": "0000"},
+        )
         assert response.status_code == 400
         assert "invalid" in response.json()["message"].lower() or "expired" in response.json()["message"].lower()
+
+    def test_verify_code_with_wrong_email_fails(self, client, tracked_email, signup_payload) -> None:
+        signup_payload["email"] = tracked_email
+        signup = client.post("/api/v1/auth/signup", json=signup_payload).json()
+        code = signup["verificationCode"]
+
+        response = client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": "other.user@example.com", "code": code},
+        )
+        assert response.status_code == 400
+        assert "invalid" in response.json()["message"].lower() or "expired" in response.json()["message"].lower()
+
+        db = SessionLocal()
+        try:
+            user = db.scalar(select(User).where(User.email == tracked_email))
+            assert user is not None
+            assert user.email_verified is False
+        finally:
+            db.close()
 
     def test_verify_expired_code(self, client, tracked_email, signup_payload) -> None:
         signup_payload["email"] = tracked_email
@@ -161,7 +239,10 @@ class TestVerifyEmail:
         finally:
             db.close()
 
-        response = client.post("/api/v1/auth/email/verify", json={"code": code})
+        response = client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": tracked_email, "code": code},
+        )
         assert response.status_code == 400
 
     def test_verify_code_cannot_be_reused(self, client, tracked_email, signup_payload) -> None:
@@ -169,13 +250,19 @@ class TestVerifyEmail:
         signup = client.post("/api/v1/auth/signup", json=signup_payload).json()
         code = signup["verificationCode"]
 
-        first = client.post("/api/v1/auth/email/verify", json={"code": code})
+        first = client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": tracked_email, "code": code},
+        )
         assert first.status_code == 200
 
-        second = client.post("/api/v1/auth/email/verify", json={"code": code})
+        second = client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": tracked_email, "code": code},
+        )
         assert second.status_code == 400
 
-    def test_verify_missing_code_returns_400(self, client) -> None:
+    def test_verify_missing_fields_returns_400(self, client) -> None:
         response = client.post("/api/v1/auth/email/verify", json={})
         assert response.status_code == 400
         assert response.json()["success"] is False
@@ -199,20 +286,26 @@ class TestResendVerification:
         assert body["verificationCode"] != old_code
 
         # Old code should no longer work
-        old = client.post("/api/v1/auth/email/verify", json={"code": old_code})
+        old = client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": tracked_email, "code": old_code},
+        )
         assert old.status_code == 400
 
         # New code should work
         verify = client.post(
             "/api/v1/auth/email/verify",
-            json={"code": body["verificationCode"]},
+            json={"email": tracked_email, "code": body["verificationCode"]},
         )
         assert verify.status_code == 200
 
     def test_resend_already_verified(self, client, tracked_email, signup_payload) -> None:
         signup_payload["email"] = tracked_email
         signup = client.post("/api/v1/auth/signup", json=signup_payload).json()
-        client.post("/api/v1/auth/email/verify", json={"code": signup["verificationCode"]})
+        client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": tracked_email, "code": signup["verificationCode"]},
+        )
 
         response = client.post(
             "/api/v1/auth/email/resend",
@@ -239,9 +332,14 @@ class TestFullAuthFlow:
         assert signup.status_code == 201
         code = signup.json()["verificationCode"]
 
-        verify = client.post("/api/v1/auth/email/verify", json={"code": code})
+        verify = client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": tracked_email, "code": code},
+        )
         assert verify.status_code == 200
-        assert verify.json()["user"]["emailVerified"] is True
+        verify_body = verify.json()
+        assert verify_body["user"]["emailVerified"] is True
+        assert verify_body["token"]
 
         login = client.post(
             "/api/v1/auth/login",
@@ -250,3 +348,25 @@ class TestFullAuthFlow:
         assert login.status_code == 200
         assert login.json()["token"]
         assert login.json()["user"]["emailVerified"] is True
+
+    def test_signup_resume_after_app_closed_then_verify_without_login(
+        self, client, tracked_email, signup_payload
+    ) -> None:
+        signup_payload["email"] = tracked_email
+        first = client.post("/api/v1/auth/signup", json=signup_payload)
+        assert first.status_code == 201
+        old_code = first.json()["verificationCode"]
+
+        second = client.post("/api/v1/auth/signup", json=signup_payload)
+        assert second.status_code == 201
+        new_code = second.json()["verificationCode"]
+        assert new_code != old_code
+
+        verify = client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": tracked_email, "code": new_code},
+        )
+        assert verify.status_code == 200
+        body = verify.json()
+        assert body["token"]
+        assert body["user"]["emailVerified"] is True

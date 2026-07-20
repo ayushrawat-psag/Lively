@@ -34,6 +34,7 @@ class LoginRequest(BaseModel):
 
 
 class VerifyEmailRequest(BaseModel):
+    email: EmailStr
     code: str = Field(..., min_length=1)
 
 
@@ -82,7 +83,9 @@ class VerifyEmailResponse(BaseModel):
     success: bool
     message: str
     code: str
+    token: str
     user: UserPublic
+    children: list[ChildPublic] = []
 
     model_config = {"populate_by_name": True}
 

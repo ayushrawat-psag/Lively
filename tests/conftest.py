@@ -157,8 +157,11 @@ def signup_user(client: TestClient, email: str, password: str = "Demo@123") -> d
     return response.json()
 
 
-def verify_user(client: TestClient, code: str) -> dict:
-    response = client.post("/api/v1/auth/email/verify", json={"code": code})
+def verify_user(client: TestClient, email: str, code: str) -> dict:
+    response = client.post(
+        "/api/v1/auth/email/verify",
+        json={"email": email, "code": code},
+    )
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -176,7 +179,7 @@ def login_user(client: TestClient, email: str, password: str = "Demo@123") -> di
 def verified_user(client, tracked_email) -> Generator[dict, None, None]:
     """Signup + verify; returns dict with email, password, signup, verify, login-ready user."""
     signup = signup_user(client, tracked_email)
-    verify = verify_user(client, signup["verificationCode"])
+    verify = verify_user(client, tracked_email, signup["verificationCode"])
     yield {
         "email": tracked_email,
         "password": "Demo@123",
