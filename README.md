@@ -6,6 +6,7 @@ FastAPI backend for the Lively mobile app (MVP auth).
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| `GET` | `/api/v1/plans` | Get monthly and yearly subscription plans |
 | `POST` | `/api/v1/auth/signup` | Create parent account + send verification code |
 | `POST` | `/api/v1/auth/login` | Authenticate and return JWT |
 | `POST` | `/api/v1/auth/email/verify` | Verify email with code; returns JWT (no separate login needed) |
@@ -146,6 +147,14 @@ curl -X POST http://127.0.0.1:8000/api/v1/auth/signup `
 
 Expected: `201` with `emailVerificationRequired: true` and (in dev) `verificationCode`.
 
+### Plans
+
+```powershell
+curl -X GET http://127.0.0.1:8000/api/v1/plans
+```
+
+Expected: `200` with `success: true` and two plans (`monthly`, `yearly`).
+
 ### Verify email
 
 ```powershell
@@ -191,6 +200,7 @@ If the email exists but is **not yet verified** (e.g. user closed the app before
 ```text
 app/
   api/v1/endpoints/auth.py   # Auth routes
+  api/v1/endpoints/plans.py  # Plans routes
   core/config.py             # Settings from .env
   core/security.py           # Password + JWT helpers
   db/                        # Engine / session / Base
