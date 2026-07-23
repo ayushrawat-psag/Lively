@@ -144,6 +144,8 @@ class TestLogin:
         assert body["token"]
         assert body["user"]["email"] == tracked_email
         assert body["user"]["emailVerified"] is True
+        assert body["user"]["inviteCode"]
+        assert body["subscription"] is None
         assert body["children"] == []
 
     def test_login_invalid_password(self, client, tracked_email, signup_payload) -> None:
@@ -191,6 +193,8 @@ class TestVerifyEmail:
         assert body["code"] == code
         assert body["token"]
         assert body["user"]["emailVerified"] is True
+        assert body["user"]["inviteCode"]
+        assert len(body["user"]["inviteCode"]) == 6
         assert body["children"] == []
 
     def test_verify_invalid_code(self, client, tracked_email, signup_payload) -> None:
@@ -340,14 +344,18 @@ class TestFullAuthFlow:
         verify_body = verify.json()
         assert verify_body["user"]["emailVerified"] is True
         assert verify_body["token"]
+        assert verify_body["user"]["inviteCode"]
 
         login = client.post(
             "/api/v1/auth/login",
             json={"email": tracked_email, "password": "Demo@123"},
         )
         assert login.status_code == 200
-        assert login.json()["token"]
-        assert login.json()["user"]["emailVerified"] is True
+        login_body = login.json()
+        assert login_body["token"]
+        assert login_body["user"]["emailVerified"] is True
+        assert login_body["user"]["inviteCode"] == verify_body["user"]["inviteCode"]
+        assert login_body["subscription"] is None
 
     def test_signup_resume_after_app_closed_then_verify_without_login(
         self, client, tracked_email, signup_payload
@@ -370,3 +378,44 @@ class TestFullAuthFlow:
         body = verify.json()
         assert body["token"]
         assert body["user"]["emailVerified"] is True
+
+
+class TestInviteCode:
+    def test_generate_invite_code_format(self) -> None:
+        from app.core.invite_code import INVITE_CODE_ALPHABET, INVITE_CODE_LENGTH, generate_invite_code
+
+        code = generate_invite_code()
+        assert len(code) == INVITE_CODE_LENGTH
+        assert all(ch in INVITE_CODE_ALPHABET for ch in code)
+        assert not any(ch in code for ch in "01IOL")
+
+    def test_regenerate_invite_code_requires_auth(self, client) -> None:
+        response = client.post("/api/v1/auth/invite-code/regenerate")
+        assert response.status_code == 401
+
+    def test_regenerate_invite_code_success(self, client, tracked_email, signup_payload) -> None:
+        signup_payload["email"] = tracked_email
+        signup = client.post("/api/v1/auth/signup", json=signup_payload).json()
+        verify = client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": tracked_email, "code": signup["verificationCode"]},
+        ).json()
+        old_code = verify["user"]["inviteCode"]
+        token = verify["token"]
+
+        response = client.post(
+            "/api/v1/auth/invite-code/regenerate",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["success"] is True
+        assert body["inviteCode"]
+        assert body["inviteCode"] != old_code
+        assert len(body["inviteCode"]) == 6
+
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"email": tracked_email, "password": signup_payload["password"]},
+        ).json()
+        assert login["user"]["inviteCode"] == body["inviteCode"]

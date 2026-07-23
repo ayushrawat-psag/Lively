@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy import select
 
 from app.core.config import Settings, get_settings
+from app.core.invite_code import INVITE_CODE_ALPHABET, INVITE_CODE_LENGTH
 from app.core.security import decode_access_token
 from app.db.session import SessionLocal
 from app.models.email_verification import EmailVerificationCode
@@ -72,10 +73,15 @@ class TestFullE2EAuthFlow:
         assert verify["user"]["emailVerified"] is True
         assert verify["code"] == code
         assert verify["token"]
+        invite_code = verify["user"]["inviteCode"]
+        assert invite_code is not None
+        assert len(invite_code) == INVITE_CODE_LENGTH
+        assert all(ch in INVITE_CODE_ALPHABET for ch in invite_code)
 
         user = get_user_from_db(tracked_email)
         assert user is not None
         assert user.email_verified is True
+        assert user.invite_code == invite_code
         assert get_active_codes_for_user(user.id) == []
 
         # 6. Login succeeds with JWT
@@ -83,6 +89,8 @@ class TestFullE2EAuthFlow:
         assert login["success"] is True
         assert login["token"]
         assert login["user"]["emailVerified"] is True
+        assert login["user"]["inviteCode"] == invite_code
+        assert login["subscription"] is None
         assert login["children"] == []
 
         claims = decode_access_token(login["token"])
@@ -271,9 +279,11 @@ class TestAPIContractShapes:
 
     def test_login_response_contract(self, verified_user, client) -> None:
         login = login_user(client, verified_user["email"])
-        required = {"success", "message", "token", "user", "children"}
+        required = {"success", "message", "token", "user", "children", "subscription"}
         assert required.issubset(login.keys())
         assert isinstance(login["children"], list)
+        assert login["subscription"] is None
+        assert "inviteCode" in login["user"]
 
     def test_verify_response_contract(self, client, tracked_email) -> None:
         signup = signup_user(client, tracked_email)
@@ -281,6 +291,8 @@ class TestAPIContractShapes:
         required = {"success", "message", "code", "token", "user", "children"}
         assert required.issubset(body.keys())
         assert isinstance(body["children"], list)
+        assert "inviteCode" in body["user"]
+        assert body["user"]["inviteCode"]
 
     def test_resend_response_contract(self, client, tracked_email) -> None:
         signup_user(client, tracked_email)
@@ -441,3 +453,31 @@ class TestEdgeCases:
         body = signup_user(client, tracked_email)
         assert body["verificationCode"]
         assert get_user_from_db(tracked_email) is not None
+
+
+class TestInviteCodeRegenerate:
+    def test_regenerate_changes_code_and_persists(self, client, tracked_email) -> None:
+        signup = signup_user(client, tracked_email)
+        verify = verify_user(client, tracked_email, signup["verificationCode"])
+        old_code = verify["user"]["inviteCode"]
+        token = verify["token"]
+
+        response = client.post(
+            "/api/v1/auth/invite-code/regenerate",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["inviteCode"] != old_code
+
+        user = get_user_from_db(tracked_email)
+        assert user is not None
+        assert user.invite_code == body["inviteCode"]
+
+        login = login_user(client, tracked_email)
+        assert login["user"]["inviteCode"] == body["inviteCode"]
+        assert login["subscription"] is None
+
+    def test_regenerate_without_token_returns_401(self, client) -> None:
+        response = client.post("/api/v1/auth/invite-code/regenerate")
+        assert response.status_code == 401

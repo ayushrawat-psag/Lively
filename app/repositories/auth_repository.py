@@ -79,3 +79,7 @@ class AuthRepository:
     def update_last_login(self, user: User) -> None:
         user.last_login_at = datetime.now(timezone.utc)
         self.db.flush()
+
+    def set_invite_code(self, user: User, invite_code: str) -> None:
+        user.invite_code = invite_code
+        self.db.flush()
