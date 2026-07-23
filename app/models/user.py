@@ -60,7 +60,7 @@ class User(Base):
         nullable=True,
     )
     is_child: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    invite_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    invite_code: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
     family_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     school_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     classroom_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)

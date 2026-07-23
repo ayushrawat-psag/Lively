@@ -48,6 +48,7 @@ class UserPublic(BaseModel):
     email: str
     guardian: bool
     email_verified: bool = Field(..., alias="emailVerified")
+    invite_code: str | None = Field(default=None, alias="inviteCode")
 
     model_config = {"populate_by_name": True, "from_attributes": True}
 
@@ -56,6 +57,15 @@ class ChildPublic(BaseModel):
     id: UUID | int | str
     name: str
     initial: str
+
+
+class SubscriptionPublic(BaseModel):
+    plan_id: str = Field(..., alias="planId")
+    status: str
+    billing_interval: str = Field(..., alias="billingInterval")
+    current_period_end: str | None = Field(default=None, alias="currentPeriodEnd")
+
+    model_config = {"populate_by_name": True}
 
 
 class SignupResponse(BaseModel):
@@ -75,6 +85,7 @@ class LoginResponse(BaseModel):
     token: str
     user: UserPublic
     children: list[ChildPublic] = []
+    subscription: SubscriptionPublic | None = None
 
     model_config = {"populate_by_name": True}
 
@@ -94,6 +105,14 @@ class ResendVerificationResponse(BaseModel):
     success: bool
     message: str
     verification_code: str | None = Field(default=None, alias="verificationCode")
+
+    model_config = {"populate_by_name": True}
+
+
+class RegenerateInviteCodeResponse(BaseModel):
+    success: bool
+    message: str
+    invite_code: str = Field(..., alias="inviteCode")
 
     model_config = {"populate_by_name": True}
 
@@ -123,4 +142,5 @@ def user_to_public(user: Any) -> UserPublic:
         email=user.email or "",
         guardian=user.is_guardian,
         emailVerified=user.email_verified,
+        inviteCode=user.invite_code,
     )

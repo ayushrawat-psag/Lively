@@ -1,10 +1,13 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user
 from app.db.session import get_db
+from app.models.user import User
 from app.schemas.auth import (
     LoginRequest,
     LoginResponse,
+    RegenerateInviteCodeResponse,
     ResendVerificationRequest,
     ResendVerificationResponse,
     SignupRequest,
@@ -55,3 +58,15 @@ def resend_verification(
     db: Session = Depends(get_db),
 ) -> ResendVerificationResponse:
     return AuthService(db).resend_verification(payload)
+
+
+@router.post(
+    "/invite-code/regenerate",
+    response_model=RegenerateInviteCodeResponse,
+    response_model_by_alias=True,
+)
+def regenerate_invite_code(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RegenerateInviteCodeResponse:
+    return AuthService(db).regenerate_invite_code(current_user)

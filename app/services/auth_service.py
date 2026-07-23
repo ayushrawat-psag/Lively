@@ -3,9 +3,11 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
+from app.core.invite_code import generate_invite_code
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.email_verification import EmailVerificationCode
 from app.models.user import AgeCohort, User, UserStatus, UserType
@@ -13,6 +15,7 @@ from app.repositories.auth_repository import AuthRepository
 from app.schemas.auth import (
     LoginRequest,
     LoginResponse,
+    RegenerateInviteCodeResponse,
     ResendVerificationRequest,
     ResendVerificationResponse,
     SignupRequest,
@@ -25,6 +28,8 @@ from app.schemas.auth import (
 from app.services.email_service import EmailSendError, EmailService
 
 logger = logging.getLogger(__name__)
+
+_INVITE_CODE_MAX_ATTEMPTS = 5
 
 
 class AuthService:
@@ -136,8 +141,12 @@ class AuthService:
                 },
             )
 
+        if not user.invite_code:
+            self._assign_unique_invite_code(user)
+
         self.repo.update_last_login(user)
         self.repo.save()
+        self.repo.refresh(user)
 
         token = self._create_access_token(user)
 
@@ -147,6 +156,7 @@ class AuthService:
             token=token,
             user=user_to_public(user),
             children=[],
+            subscription=None,
         )
 
     def verify_email(self, payload: VerifyEmailRequest) -> VerifyEmailResponse:
@@ -181,6 +191,8 @@ class AuthService:
         self.repo.mark_code_used(verification)
         self.repo.mark_email_verified(user)
         self.repo.invalidate_active_codes(user.id)
+        if not user.invite_code:
+            self._assign_unique_invite_code(user)
         self.repo.update_last_login(user)
         self.repo.save()
         self.repo.refresh(user)
@@ -194,6 +206,23 @@ class AuthService:
             token=token,
             user=user_to_public(user),
             children=[],
+        )
+
+    def regenerate_invite_code(self, user: User) -> RegenerateInviteCodeResponse:
+        if not user.email_verified:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"success": False, "message": "Please verify your email before continuing"},
+            )
+
+        self._assign_unique_invite_code(user, force=True)
+        self.repo.save()
+        self.repo.refresh(user)
+
+        return RegenerateInviteCodeResponse(
+            success=True,
+            message="Invite code regenerated",
+            inviteCode=user.invite_code or "",
         )
 
     def resend_verification(self, payload: ResendVerificationRequest) -> ResendVerificationResponse:
@@ -264,6 +293,26 @@ class AuthService:
         length = self.settings.verification_code_length
         upper = 10**length
         return str(secrets.randbelow(upper)).zfill(length)
+
+    def _assign_unique_invite_code(self, user: User, *, force: bool = False) -> None:
+        if user.invite_code and not force:
+            return
+
+        for _ in range(_INVITE_CODE_MAX_ATTEMPTS):
+            code = generate_invite_code()
+            try:
+                # Savepoint so a unique collision does not abort the outer transaction
+                # (e.g. email verification already applied in the same request).
+                with self.repo.db.begin_nested():
+                    self.repo.set_invite_code(user, code)
+                return
+            except IntegrityError:
+                continue
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "message": "Failed to generate a unique invite code"},
+        )
 
     def _create_access_token(self, user: User) -> str:
         return create_access_token(
