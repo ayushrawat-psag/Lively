@@ -9,10 +9,13 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.core.invite_code import generate_invite_code
 from app.core.security import create_access_token, hash_password, verify_password
+from app.models.child import Child
 from app.models.email_verification import EmailVerificationCode
 from app.models.user import AgeCohort, User, UserStatus, UserType
 from app.repositories.auth_repository import AuthRepository
+from app.repositories.child_repository import ChildRepository
 from app.schemas.auth import (
+    ChildPublic,
     LoginRequest,
     LoginResponse,
     RegenerateInviteCodeResponse,
@@ -155,7 +158,7 @@ class AuthService:
             message="Login successful",
             token=token,
             user=user_to_public(user),
-            children=[],
+            children=self._children_for_parent(user),
             subscription=None,
         )
 
@@ -313,6 +316,16 @@ class AuthService:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"success": False, "message": "Failed to generate a unique invite code"},
         )
+
+    def _children_for_parent(self, user: User) -> list[ChildPublic]:
+        children = ChildRepository(self.repo.db).list_active_for_parent(user.id)
+        return [self._child_to_public(child) for child in children]
+
+    @staticmethod
+    def _child_to_public(child: Child) -> ChildPublic:
+        name = (child.name or "").strip()
+        initial = name[0].upper() if name else ""
+        return ChildPublic(id=child.id, name=name, initial=initial)
 
     def _create_access_token(self, user: User) -> str:
         return create_access_token(

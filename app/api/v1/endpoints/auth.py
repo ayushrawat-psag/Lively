@@ -15,7 +15,14 @@ from app.schemas.auth import (
     VerifyEmailRequest,
     VerifyEmailResponse,
 )
+from app.schemas.child_auth import (
+    ChildLoginRequest,
+    ChildLoginResponse,
+    VerifyInviteCodeRequest,
+    VerifyInviteCodeResponse,
+)
 from app.services.auth_service import AuthService
+from app.services.child_auth_service import ChildAuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -70,3 +77,27 @@ def regenerate_invite_code(
     current_user: User = Depends(get_current_user),
 ) -> RegenerateInviteCodeResponse:
     return AuthService(db).regenerate_invite_code(current_user)
+
+
+@router.post(
+    "/child/verify-invite-code",
+    response_model=VerifyInviteCodeResponse,
+    response_model_by_alias=True,
+)
+def verify_child_invite_code(
+    payload: VerifyInviteCodeRequest,
+    db: Session = Depends(get_db),
+) -> VerifyInviteCodeResponse:
+    return ChildAuthService(db).verify_invite_code(payload)
+
+
+@router.post(
+    "/child/login",
+    response_model=ChildLoginResponse,
+    response_model_by_alias=True,
+)
+def child_login(
+    payload: ChildLoginRequest,
+    db: Session = Depends(get_db),
+) -> ChildLoginResponse:
+    return ChildAuthService(db).child_login(payload)

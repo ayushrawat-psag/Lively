@@ -1,5 +1,7 @@
 from functools import lru_cache
+from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,10 +29,31 @@ class Settings(BaseSettings):
     # Keep true for local/dev testing; set false in production once Brevo is live
     include_verification_code_in_response: bool = True
 
+    # Family invite codes: alphanumeric (readable alphabet) or numeric (digits only)
+    invite_code_format: Literal["alphanumeric", "numeric"] = "alphanumeric"
+    invite_code_length: int = 6
+
     # Brevo transactional email
     brevo_api_key: str = ""
     brevo_sender_email: str = ""
     brevo_sender_name: str = "Lively"
+
+    @field_validator("invite_code_format", mode="before")
+    @classmethod
+    def normalize_invite_code_format(cls, value: object) -> str:
+        if value is None or value == "":
+            return "alphanumeric"
+        normalized = str(value).strip().lower()
+        if normalized not in ("alphanumeric", "numeric"):
+            raise ValueError("INVITE_CODE_FORMAT must be 'alphanumeric' or 'numeric'")
+        return normalized
+
+    @field_validator("invite_code_length")
+    @classmethod
+    def invite_code_length_positive(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("INVITE_CODE_LENGTH must be at least 1")
+        return value
 
 
 @lru_cache

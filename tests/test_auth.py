@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import uuid
 
 from sqlalchemy import select
 
@@ -147,6 +148,40 @@ class TestLogin:
         assert body["user"]["inviteCode"]
         assert body["subscription"] is None
         assert body["children"] == []
+
+    def test_login_includes_children(self, client, tracked_email, signup_payload) -> None:
+        signup_payload["email"] = tracked_email
+        signup = client.post("/api/v1/auth/signup", json=signup_payload).json()
+        verify = client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": tracked_email, "code": signup["verificationCode"]},
+        ).json()
+        token = verify["token"]
+
+        created = client.post(
+            "/api/v1/children",
+            json={
+                "name": "Alex",
+                "dateOfBirth": "2015-06-20",
+                "gender": "boy",
+                "devices": ["this_device"],
+                "pin": "6756",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert created.status_code == 201
+        child_id = created.json()["child"]["id"]
+
+        response = client.post(
+            "/api/v1/auth/login",
+            json={"email": tracked_email, "password": signup_payload["password"]},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body["children"]) == 1
+        assert body["children"][0]["id"] == child_id
+        assert body["children"][0]["name"] == "Alex"
+        assert body["children"][0]["initial"] == "A"
 
     def test_login_invalid_password(self, client, tracked_email, signup_payload) -> None:
         signup_payload["email"] = tracked_email
@@ -381,13 +416,29 @@ class TestFullAuthFlow:
 
 
 class TestInviteCode:
-    def test_generate_invite_code_format(self) -> None:
-        from app.core.invite_code import INVITE_CODE_ALPHABET, INVITE_CODE_LENGTH, generate_invite_code
+    def test_generate_invite_code_alphanumeric_format(self) -> None:
+        from app.core.config import get_settings
+        from app.core.invite_code import INVITE_CODE_ALPHABET, generate_invite_code
 
-        code = generate_invite_code()
-        assert len(code) == INVITE_CODE_LENGTH
+        get_settings.cache_clear()
+        code = generate_invite_code(format="alphanumeric", length=6)
+        assert len(code) == 6
         assert all(ch in INVITE_CODE_ALPHABET for ch in code)
         assert not any(ch in code for ch in "01IOL")
+
+    def test_generate_invite_code_numeric_format(self, monkeypatch) -> None:
+        from app.core.config import get_settings
+        from app.core.invite_code import generate_invite_code
+
+        monkeypatch.setenv("INVITE_CODE_FORMAT", "numeric")
+        monkeypatch.setenv("INVITE_CODE_LENGTH", "6")
+        get_settings.cache_clear()
+        try:
+            code = generate_invite_code()
+            assert len(code) == 6
+            assert code.isdigit()
+        finally:
+            get_settings.cache_clear()
 
     def test_regenerate_invite_code_requires_auth(self, client) -> None:
         response = client.post("/api/v1/auth/invite-code/regenerate")
@@ -419,3 +470,101 @@ class TestInviteCode:
             json={"email": tracked_email, "password": signup_payload["password"]},
         ).json()
         assert login["user"]["inviteCode"] == body["inviteCode"]
+
+    def test_verify_generates_numeric_when_env_numeric(
+        self, client, tracked_email, signup_payload, monkeypatch
+    ) -> None:
+        from app.core.config import get_settings
+
+        monkeypatch.setenv("INVITE_CODE_FORMAT", "numeric")
+        get_settings.cache_clear()
+        try:
+            signup_payload["email"] = tracked_email
+            signup = client.post("/api/v1/auth/signup", json=signup_payload).json()
+            verify = client.post(
+                "/api/v1/auth/email/verify",
+                json={"email": tracked_email, "code": signup["verificationCode"]},
+            ).json()
+            invite = verify["user"]["inviteCode"]
+            assert invite is not None
+            assert len(invite) == 6
+            assert invite.isdigit()
+        finally:
+            get_settings.cache_clear()
+
+    def test_regenerate_under_numeric_produces_digits(
+        self, client, tracked_email, signup_payload, monkeypatch
+    ) -> None:
+        from app.core.config import get_settings
+
+        signup_payload["email"] = tracked_email
+        signup = client.post("/api/v1/auth/signup", json=signup_payload).json()
+        verify = client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": tracked_email, "code": signup["verificationCode"]},
+        ).json()
+        token = verify["token"]
+        old_code = verify["user"]["inviteCode"]
+
+        monkeypatch.setenv("INVITE_CODE_FORMAT", "numeric")
+        get_settings.cache_clear()
+        try:
+            response = client.post(
+                "/api/v1/auth/invite-code/regenerate",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert response.status_code == 200
+            new_code = response.json()["inviteCode"]
+            assert new_code != old_code
+            assert len(new_code) == 6
+            assert new_code.isdigit()
+        finally:
+            get_settings.cache_clear()
+
+    def test_grandfathered_alphanumeric_code_still_verifies_when_env_numeric(
+        self, client, tracked_email, signup_payload, monkeypatch
+    ) -> None:
+        """Existing stored codes remain valid after switching ENV to numeric."""
+        from app.core.config import get_settings
+        from app.db.session import SessionLocal
+        from app.models.user import User
+        from sqlalchemy import select
+
+        signup_payload["email"] = tracked_email
+        signup = client.post("/api/v1/auth/signup", json=signup_payload).json()
+        verify = client.post(
+            "/api/v1/auth/email/verify",
+            json={"email": tracked_email, "code": signup["verificationCode"]},
+        ).json()
+        # Force an alphanumeric-looking code into DB while ENV becomes numeric
+        legacy_code = f"A3K{uuid.uuid4().hex[:3].upper()}"
+        # Ensure exactly 6 chars from alphanumeric alphabet style
+        legacy_code = (legacy_code + "XXX")[:6].upper()
+        # Prefer characters from invite alphabet (replace 0/1/I/O/L if any)
+        from app.core.invite_code import INVITE_CODE_ALPHABET
+
+        legacy_code = "".join(
+            ch if ch in INVITE_CODE_ALPHABET else "2" for ch in legacy_code
+        )
+        db = SessionLocal()
+        try:
+            user = db.scalar(select(User).where(User.email == tracked_email.lower()))
+            assert user is not None
+            user.invite_code = legacy_code
+            db.commit()
+        finally:
+            db.close()
+
+        monkeypatch.setenv("INVITE_CODE_FORMAT", "numeric")
+        get_settings.cache_clear()
+        try:
+            response = client.post(
+                "/api/v1/auth/child/verify-invite-code",
+                json={"inviteCode": legacy_code},
+            )
+            assert response.status_code == 200
+            body = response.json()
+            assert body["success"] is True
+            assert body["user"]["inviteCode"] == legacy_code
+        finally:
+            get_settings.cache_clear()
