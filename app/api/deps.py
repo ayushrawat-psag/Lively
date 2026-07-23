@@ -21,14 +21,14 @@ def get_current_user(
     if credentials is None or not credentials.credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"success": False, "message": "Not authenticated"},
+            detail={"success": False, "message": "Unauthorized"},
         )
 
     payload = decode_access_token(credentials.credentials)
     if not payload or "sub" not in payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"success": False, "message": "Invalid or expired token"},
+            detail={"success": False, "message": "Unauthorized"},
         )
 
     try:
@@ -36,13 +36,13 @@ def get_current_user(
     except (ValueError, TypeError) as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"success": False, "message": "Invalid or expired token"},
+            detail={"success": False, "message": "Unauthorized"},
         ) from exc
 
     user = AuthRepository(db).get_user_by_id(user_id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"success": False, "message": "Invalid or expired token"},
+            detail={"success": False, "message": "Unauthorized"},
         )
     return user
