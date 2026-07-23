@@ -29,6 +29,10 @@ services:
         value: "4"
       - key: INCLUDE_VERIFICATION_CODE_IN_RESPONSE
         value: "true"
+      - key: INVITE_CODE_FORMAT
+        value: alphanumeric
+      - key: INVITE_CODE_LENGTH
+        value: "6"
       - key: BREVO_SENDER_NAME
         value: Lively
       - key: DATABASE_URL

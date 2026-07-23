@@ -52,6 +52,13 @@ class ChildRepository:
         )
         return self.db.scalars(stmt).first()
 
+    def get_active_by_id(self, child_id: UUID) -> Child | None:
+        stmt = select(Child).where(
+            Child.id == child_id,
+            Child.deleted_at.is_(None),
+        )
+        return self.db.scalars(stmt).first()
+
     def soft_delete(self, child: Child) -> None:
         child.deleted_at = datetime.now(timezone.utc)
         self.db.flush()

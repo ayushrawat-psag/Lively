@@ -21,6 +21,10 @@ class AuthRepository:
     def get_user_by_id(self, user_id: UUID) -> User | None:
         return self.db.get(User, user_id)
 
+    def get_user_by_invite_code(self, invite_code: str) -> User | None:
+        stmt = select(User).where(User.invite_code == invite_code)
+        return self.db.scalars(stmt).first()
+
     def create_user(self, user: User) -> User:
         self.db.add(user)
         self.db.flush()

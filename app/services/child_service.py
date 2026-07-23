@@ -36,6 +36,10 @@ def _base_public(child: Child) -> dict:
     }
 
 
+def child_to_public(child: Child) -> ChildPublic:
+    return ChildPublic(**_base_public(child))
+
+
 class ChildService:
     def __init__(self, db: Session) -> None:
         self.repo = ChildRepository(db)
