@@ -4,7 +4,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, verify_password
-from app.models.user import UserStatus
+from app.models.enums import UserStatus, UserType
 from app.repositories.auth_repository import AuthRepository
 from app.repositories.child_repository import ChildRepository
 from app.schemas.auth import user_to_public
@@ -76,12 +76,13 @@ class ChildAuthService:
                 detail={"success": False, "message": "Invalid PIN code"},
             )
 
+        parent_user_id = self.child_repo.get_parent_user_id(child)
         token = create_access_token(
             subject=child.id,
             extra_claims={
                 "actor": "child",
-                "parentUserId": str(child.parent_user_id),
-                "user_type": "Child",
+                "parentUserId": str(parent_user_id) if parent_user_id else None,
+                "user_type": UserType.CHILD.value,
             },
         )
 

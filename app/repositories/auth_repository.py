@@ -1,11 +1,13 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models.email_verification import EmailVerificationCode
+from app.models.enums import UserType
+from app.models.family import Family
 from app.models.user import User
+from app.models.user_activity import UserActivity
 
 
 class AuthRepository:
@@ -40,6 +42,8 @@ class AuthRepository:
         self.db.refresh(instance)
 
     def invalidate_active_codes(self, user_id: UUID) -> None:
+        from app.models.email_verification import EmailVerificationCode
+
         stmt = select(EmailVerificationCode).where(
             EmailVerificationCode.user_id == user_id,
             EmailVerificationCode.is_used.is_(False),
@@ -52,12 +56,14 @@ class AuthRepository:
         if codes:
             self.db.flush()
 
-    def create_verification_code(self, code: EmailVerificationCode) -> EmailVerificationCode:
+    def create_verification_code(self, code) -> object:
         self.db.add(code)
         self.db.flush()
         return code
 
-    def get_active_code(self, *, user_id: UUID, code: str) -> EmailVerificationCode | None:
+    def get_active_code(self, *, user_id: UUID, code: str):
+        from app.models.email_verification import EmailVerificationCode
+
         now = datetime.now(timezone.utc)
         stmt = (
             select(EmailVerificationCode)
@@ -71,7 +77,7 @@ class AuthRepository:
         )
         return self.db.scalars(stmt).first()
 
-    def mark_code_used(self, verification: EmailVerificationCode) -> None:
+    def mark_code_used(self, verification) -> None:
         verification.is_used = True
         verification.used_at = datetime.now(timezone.utc)
         self.db.flush()
@@ -81,9 +87,36 @@ class AuthRepository:
         self.db.flush()
 
     def update_last_login(self, user: User) -> None:
-        user.last_login_at = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        activity = self.db.scalar(select(UserActivity).where(UserActivity.user_id == user.id))
+        if activity is None:
+            activity = UserActivity(user_id=user.id, last_login_at=now)
+            self.db.add(activity)
+        else:
+            activity.last_login_at = now
         self.db.flush()
 
     def set_invite_code(self, user: User, invite_code: str) -> None:
         user.invite_code = invite_code
         self.db.flush()
+
+    @staticmethod
+    def _parent_family_filter(parent_user_id: UUID):
+        return or_(
+            Family.primary_parent_user_id == parent_user_id,
+            Family.secondary_parent_user_id == parent_user_id,
+        )
+
+    def list_child_users_for_parent(self, parent_user_id: UUID) -> list[User]:
+        stmt = (
+            select(User)
+            .join(Family, User.family_id == Family.id)
+            .where(
+                self._parent_family_filter(parent_user_id),
+                User.user_type == UserType.CHILD,
+                User.is_child.is_(True),
+                User.deleted_at.is_(None),
+            )
+            .order_by(User.created_at.asc())
+        )
+        return list(self.db.scalars(stmt).all())

@@ -4,6 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
+import app.db.base_models  # noqa: F401 — register all ORM mappers
 
 settings = get_settings()
 

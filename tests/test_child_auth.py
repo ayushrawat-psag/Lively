@@ -105,6 +105,8 @@ def test_child_login_success(client, tracked_email) -> None:
     assert body["token"]
     assert body["child"]["id"] == child_id
     assert body["child"]["name"] == "Alex"
+    assert body["child"]["onBoarding"] is False
+    assert body["child"]["childAppTour"] is False
     assert "pin" not in body["child"]
 
     from app.core.security import decode_access_token
@@ -113,7 +115,7 @@ def test_child_login_success(client, tracked_email) -> None:
     assert claims is not None
     assert claims["sub"] == child_id
     assert claims["actor"] == "child"
-    assert claims["user_type"] == "Child"
+    assert claims["user_type"] == "CHILD"
 
 
 def test_child_login_wrong_pin(client, tracked_email) -> None:

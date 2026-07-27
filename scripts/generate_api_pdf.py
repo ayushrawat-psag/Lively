@@ -174,7 +174,7 @@ def main() -> None:
         '    "id": "<uuid>", "name": "Alex",\n'
         '    "dateOfBirth": "2015-06-20", "gender": "boy",\n'
         '    "devices": ["this_device", "shared_device"],\n'
-        '    "pin": "6756", "onBoarding": false\n'
+        '    "pin": "6756", "onBoarding": false, "childAppTour": false\n'
         "  }\n"
         "}"
     )
@@ -199,7 +199,7 @@ def main() -> None:
         '    "id": "<uuid>", "name": "Alex",\n'
         '    "dateOfBirth": "2015-06-20", "gender": "boy",\n'
         '    "devices": ["this_device", "shared_device"],\n'
-        '    "onBoarding": false,\n'
+        '    "onBoarding": false, "childAppTour": false,\n'
         '    "progress": { "completedActivities": 0, "currentLevel": null }\n'
         "  }\n"
         "}"
@@ -212,6 +212,22 @@ def main() -> None:
         '{ "name": "Alex", "dateOfBirth": "2015-06-20", "gender": "boy",\n'
         '  "devices": ["this_device"], "pin": "6756" }\n\n'
         "Response 200: success + updated child (no pin field)"
+    )
+
+    h3("PATCH /api/v1/children/{childId}/app-state")
+    body(
+        "Update onBoarding and/or childAppTour. At least one field required. "
+        "Parent JWT or child JWT (child may only update own record)."
+    )
+    mono(
+        "Request example:\n"
+        '{ "onBoarding": true, "childAppTour": true }\n\n'
+        "Response 200:\n"
+        "{\n"
+        '  "success": true,\n'
+        '  "message": "Child app state updated successfully",\n'
+        '  "child": { "id": "<uuid>", "onBoarding": true, "childAppTour": true, ... }\n'
+        "}"
     )
 
     h3("DELETE /api/v1/children/{childId}")

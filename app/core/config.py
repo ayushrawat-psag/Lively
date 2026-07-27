@@ -26,17 +26,18 @@ class Settings(BaseSettings):
 
     verification_code_expire_minutes: int = 15
     verification_code_length: int = 4
-    # Keep true for local/dev testing; set false in production once Brevo is live
+    # Keep true for local/dev testing; set false in production once email is live
     include_verification_code_in_response: bool = True
 
     # Family invite codes: alphanumeric (readable alphabet) or numeric (digits only)
     invite_code_format: Literal["alphanumeric", "numeric"] = "alphanumeric"
     invite_code_length: int = 6
 
-    # Brevo transactional email
-    brevo_api_key: str = ""
-    brevo_sender_email: str = ""
-    brevo_sender_name: str = "Lively"
+    # Campaign Monitor transactional email
+    campaign_monitor_api_key: str = ""
+    campaign_monitor_sender_email: str = ""
+    campaign_monitor_sender_name: str = "Lively"
+    campaign_monitor_client_id: str = ""
 
     @field_validator("invite_code_format", mode="before")
     @classmethod

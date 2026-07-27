@@ -5,14 +5,17 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app.core.config import get_settings
 from app.core.security import decode_access_token
 from app.db.session import SessionLocal
 from app.main import app
 from app.models.email_verification import EmailVerificationCode
+from app.models.family import Family
 from app.models.user import User
+from app.models.user_activity import UserActivity
+from app.models.voucher import VoucherRedemption
 
 
 @dataclass
@@ -32,10 +35,12 @@ class EmailCapture:
 
 @pytest.fixture(autouse=True)
 def _test_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
-    """Default test env: no real Brevo sends; return codes in API responses."""
-    monkeypatch.setenv("BREVO_API_KEY", "")
-    monkeypatch.setenv("BREVO_SENDER_EMAIL", "")
+    """Default test env: no real Campaign Monitor sends; return codes in API responses."""
+    monkeypatch.setenv("CAMPAIGN_MONITOR_API_KEY", "")
+    monkeypatch.setenv("CAMPAIGN_MONITOR_SENDER_EMAIL", "")
     monkeypatch.setenv("INCLUDE_VERIFICATION_CODE_IN_RESPONSE", "true")
+    monkeypatch.setenv("INVITE_CODE_FORMAT", "alphanumeric")
+    monkeypatch.setenv("INVITE_CODE_LENGTH", "6")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
@@ -68,10 +73,37 @@ def cleanup_user_by_email(email: str) -> None:
     try:
         user = db.scalar(select(User).where(User.email == email.lower()))
         if user:
+            db.execute(delete(VoucherRedemption).where(VoucherRedemption.user_id == user.id))
             db.execute(
                 delete(EmailVerificationCode).where(EmailVerificationCode.user_id == user.id)
             )
-            db.delete(user)
+            db.execute(delete(UserActivity).where(UserActivity.user_id == user.id))
+
+            family_ids = [
+                family.id
+                for family in db.scalars(
+                    select(Family).where(
+                        (Family.primary_parent_user_id == user.id)
+                        | (Family.secondary_parent_user_id == user.id)
+                    )
+                ).all()
+            ]
+            for family_id in family_ids:
+                child_ids = [
+                    child_id
+                    for (child_id,) in db.execute(
+                        select(User.id).where(User.family_id == family_id, User.id != user.id)
+                    ).all()
+                ]
+                if child_ids:
+                    db.execute(delete(VoucherRedemption).where(VoucherRedemption.user_id.in_(child_ids)))
+                    db.execute(delete(UserActivity).where(UserActivity.user_id.in_(child_ids)))
+                    db.execute(delete(User).where(User.id.in_(child_ids)))
+
+                db.execute(update(User).where(User.family_id == family_id).values(family_id=None))
+                db.execute(delete(Family).where(Family.id == family_id))
+
+            db.execute(delete(User).where(User.id == user.id))
             db.commit()
     finally:
         db.close()
@@ -122,11 +154,11 @@ def email_capture() -> EmailCapture:
 
 
 @pytest.fixture
-def brevo_client(client, email_capture, monkeypatch) -> Generator[TestClient, None, None]:
-    """Client with Brevo configured; emails are captured instead of sent."""
-    monkeypatch.setenv("BREVO_API_KEY", "xkeysib-test-key")
-    monkeypatch.setenv("BREVO_SENDER_EMAIL", "noreply@lively.test")
-    monkeypatch.setenv("BREVO_SENDER_NAME", "Lively Test")
+def campaign_monitor_client(client, email_capture, monkeypatch) -> Generator[TestClient, None, None]:
+    """Client with Campaign Monitor configured; emails are captured instead of sent."""
+    monkeypatch.setenv("CAMPAIGN_MONITOR_API_KEY", "cm-test-key")
+    monkeypatch.setenv("CAMPAIGN_MONITOR_SENDER_EMAIL", "noreply@lively.test")
+    monkeypatch.setenv("CAMPAIGN_MONITOR_SENDER_NAME", "Lively Test")
     get_settings.cache_clear()
 
     def _capture_send(self, *, to_email: str, to_name: str, code: str) -> None:

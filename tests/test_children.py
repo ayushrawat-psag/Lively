@@ -35,6 +35,10 @@ def test_children_require_auth(client) -> None:
     fake_id = str(uuid.uuid4())
     assert client.get(f"/api/v1/children/{fake_id}").status_code == 401
     assert client.patch(f"/api/v1/children/{fake_id}", json={"name": "Sam"}).status_code == 401
+    assert (
+        client.patch(f"/api/v1/children/{fake_id}/app-state", json={"onBoarding": True}).status_code
+        == 401
+    )
     assert client.delete(f"/api/v1/children/{fake_id}").status_code == 401
 
 
@@ -66,6 +70,7 @@ def test_create_child_success(client, tracked_email) -> None:
     assert child["devices"] == ["this_device", "shared_device"]
     assert child["pin"] == "6756"
     assert child["onBoarding"] is False
+    assert child["childAppTour"] is False
     assert "progress" not in child
     uuid.UUID(child["id"])
 
@@ -194,3 +199,82 @@ def test_max_children_limit(client, tracked_email) -> None:
     )
     assert blocked.status_code == 400
     assert "Maximum" in blocked.json()["message"]
+
+
+def _create_child(client, parent_token: str, **overrides) -> dict:
+    response = client.post(
+        "/api/v1/children",
+        json=_child_payload(**overrides),
+        headers=_auth_headers(parent_token),
+    )
+    assert response.status_code == 201
+    return response.json()["child"]
+
+
+def _child_login_token(client, child_id: str, pin: str = "6756") -> str:
+    response = client.post(
+        "/api/v1/auth/child/login",
+        json={"childId": child_id, "pin": pin},
+    )
+    assert response.status_code == 200
+    return response.json()["token"]
+
+
+def test_parent_updates_child_app_state(client, tracked_email) -> None:
+    token = _verified_token(client, tracked_email)
+    child = _create_child(client, token)
+
+    response = client.patch(
+        f"/api/v1/children/{child['id']}/app-state",
+        json={"onBoarding": True, "childAppTour": True},
+        headers=_auth_headers(token),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["message"] == "Child app state updated successfully"
+    assert body["child"]["onBoarding"] is True
+    assert body["child"]["childAppTour"] is True
+
+
+def test_child_updates_own_app_state(client, tracked_email) -> None:
+    parent_token = _verified_token(client, tracked_email)
+    child = _create_child(client, parent_token)
+    child_token = _child_login_token(client, child["id"])
+
+    response = client.patch(
+        f"/api/v1/children/{child['id']}/app-state",
+        json={"childAppTour": True},
+        headers=_auth_headers(child_token),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["child"]["childAppTour"] is True
+    assert body["child"]["onBoarding"] is False
+
+
+def test_child_cannot_update_other_child_app_state(client, tracked_email) -> None:
+    parent_token = _verified_token(client, tracked_email)
+    child_a = _create_child(client, parent_token, name="Alex", pin="6756")
+    child_b = _create_child(client, parent_token, name="Sam", pin="1234")
+    child_token = _child_login_token(client, child_a["id"])
+
+    response = client.patch(
+        f"/api/v1/children/{child_b['id']}/app-state",
+        json={"onBoarding": True},
+        headers=_auth_headers(child_token),
+    )
+    assert response.status_code == 403
+    assert response.json()["message"] == "Forbidden"
+
+
+def test_update_child_app_state_requires_field(client, tracked_email) -> None:
+    token = _verified_token(client, tracked_email)
+    child = _create_child(client, token)
+
+    response = client.patch(
+        f"/api/v1/children/{child['id']}/app-state",
+        json={},
+        headers=_auth_headers(token),
+    )
+    assert response.status_code == 400

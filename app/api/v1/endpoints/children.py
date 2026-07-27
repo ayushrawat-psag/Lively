@@ -3,16 +3,18 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import authorize_child_access, get_current_user
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.children import (
+    ChildAppStateUpdateResponse,
     ChildDetailResponse,
     ChildrenListResponse,
     ChildUpdateResponse,
     CreateChildRequest,
     CreateChildResponse,
     DeleteChildResponse,
+    UpdateChildAppStateRequest,
     UpdateChildRequest,
 )
 from app.services.child_service import ChildService
@@ -81,6 +83,22 @@ def update_child(
     current_user: User = Depends(get_current_user),
 ) -> ChildUpdateResponse:
     return ChildService(db).update_child(current_user, _parse_child_id(child_id), payload)
+
+
+@router.patch(
+    "/{child_id}/app-state",
+    response_model=ChildAppStateUpdateResponse,
+    response_model_by_alias=True,
+)
+def update_child_app_state(
+    child_id: str,
+    payload: UpdateChildAppStateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ChildAppStateUpdateResponse:
+    parsed_child_id = _parse_child_id(child_id)
+    child = authorize_child_access(parsed_child_id, current_user, db)
+    return ChildService(db).update_app_state(child, payload)
 
 
 @router.delete(

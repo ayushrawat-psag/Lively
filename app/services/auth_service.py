@@ -9,9 +9,9 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.core.invite_code import generate_invite_code
 from app.core.security import create_access_token, hash_password, verify_password
-from app.models.child import Child
 from app.models.email_verification import EmailVerificationCode
-from app.models.user import AgeCohort, User, UserStatus, UserType
+from app.models.enums import AgeCohort, UserStatus, UserType
+from app.models.user import User
 from app.repositories.auth_repository import AuthRepository
 from app.repositories.child_repository import ChildRepository
 from app.schemas.auth import (
@@ -103,11 +103,17 @@ class AuthService:
         self.repo.save()
         self.repo.refresh(user)
 
-        self._send_verification_email(user=user, code=code)
+        email_sent = self._send_verification_email(user=user, code=code)
+        if email_sent:
+            message = "Signup successful. Verification email sent."
+        else:
+            message = (
+                "Signup successful. Verification email could not be sent; use resend if needed."
+            )
 
         return SignupResponse(
             success=True,
-            message="Signup successful. Verification email sent.",
+            message=message,
             emailExists=False,
             emailVerificationRequired=True,
             user=user_to_public(user),
@@ -246,35 +252,39 @@ class AuthService:
 
         code = self._create_verification_code(user)
         self.repo.save()
-        self._send_verification_email(user=user, code=code)
+        email_sent = self._send_verification_email(user=user, code=code)
+        if email_sent:
+            message = "Verification email resent"
+        else:
+            message = "Verification code updated. Email could not be sent; try again later."
 
         return ResendVerificationResponse(
             success=True,
-            message="Verification email resent",
+            message=message,
             verificationCode=code if self.settings.include_verification_code_in_response else None,
         )
 
-    def _send_verification_email(self, *, user: User, code: str) -> None:
+    def _send_verification_email(self, *, user: User, code: str) -> bool:
         if not self.email_service.is_configured:
             logger.info(
-                "Brevo not configured — verification code for %s: %s",
+                "Campaign Monitor not configured — verification code for %s: %s",
                 user.email,
                 code,
             )
+            return True
         try:
             self.email_service.send_verification_email(
                 to_email=user.email or "",
                 to_name=user.full_name,
                 code=code,
             )
-        except EmailSendError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail={
-                    "success": False,
-                    "message": "Account created but failed to send verification email. Please try resend.",
-                },
-            ) from exc
+            return True
+        except EmailSendError:
+            logger.warning(
+                "Failed to send verification email to %s; user can resend",
+                user.email,
+            )
+            return False
 
     def _create_verification_code(self, user: User) -> str:
         self.repo.invalidate_active_codes(user.id)
@@ -322,8 +332,8 @@ class AuthService:
         return [self._child_to_public(child) for child in children]
 
     @staticmethod
-    def _child_to_public(child: Child) -> ChildPublic:
-        name = (child.name or "").strip()
+    def _child_to_public(child: User) -> ChildPublic:
+        name = child.display_name
         initial = name[0].upper() if name else ""
         return ChildPublic(id=child.id, name=name, initial=initial)
 

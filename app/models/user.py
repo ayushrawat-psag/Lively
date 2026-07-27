@@ -1,39 +1,20 @@
 from __future__ import annotations
 
-import enum
 import uuid
 from datetime import date, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.models.enums import AgeCohort, UserStatus, UserType
 
 if TYPE_CHECKING:
     from app.models.email_verification import EmailVerificationCode
-
-
-class UserType(str, enum.Enum):
-    PARENT = "Parent"
-    CHILD = "Child"
-    TEACHER = "Teacher"
-    GUARDIAN = "Guardian"
-
-
-class AgeCohort(str, enum.Enum):
-    TODDLER = "Toddler"
-    CHILD = "Child"
-    TWEEN = "Tween"
-    TEEN = "Teen"
-    ADULT = "Adult"
-
-
-class UserStatus(str, enum.Enum):
-    ACTIVE = "Active"
-    INACTIVE = "Inactive"
-    SUSPENDED = "Suspended"
+    from app.models.family import Family
+    from app.models.user_activity import UserActivity
 
 
 class User(Base):
@@ -61,15 +42,30 @@ class User(Base):
     )
     is_child: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     invite_code: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
-    family_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    school_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    classroom_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    family_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("families.id"),
+        nullable=True,
+        index=True,
+    )
+    school_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schools.id"),
+        nullable=True,
+        index=True,
+    )
+    classroom_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("classrooms.id"),
+        nullable=True,
+        index=True,
+    )
     status: Mapped[UserStatus] = mapped_column(
         Enum(UserStatus, name="user_status", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
         default=UserStatus.ACTIVE,
     )
+    # App extensions (not in MVP PDF schema)
     email_verified: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -82,6 +78,21 @@ class User(Base):
         default=False,
         server_default="false",
     )
+    gender: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    devices: Mapped[list[Any] | None] = mapped_column(JSONB, nullable=True, server_default="[]")
+    onboarding: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    child_app_tour: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -99,10 +110,24 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    family: Mapped[Family | None] = relationship("Family", foreign_keys=[family_id])
+    activity: Mapped[UserActivity | None] = relationship(
+        "UserActivity",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     @property
     def full_name(self) -> str:
         return f"{self.first_name} {self.last_name}".strip()
+
+    @property
+    def display_name(self) -> str:
+        """Child display name (first + last); for children often stored in first_name only."""
+        if self.last_name:
+            return self.full_name
+        return self.first_name
 
     @property
     def is_guardian(self) -> bool:

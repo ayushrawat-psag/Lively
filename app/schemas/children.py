@@ -1,7 +1,7 @@
 from datetime import date
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class CreateChildRequest(BaseModel):
@@ -83,6 +83,19 @@ class ChildProgress(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class UpdateChildAppStateRequest(BaseModel):
+    onboarding: bool | None = Field(default=None, alias="onBoarding")
+    child_app_tour: bool | None = Field(default=None, alias="childAppTour")
+
+    model_config = {"populate_by_name": True}
+
+    @model_validator(mode="after")
+    def at_least_one_field(self) -> "UpdateChildAppStateRequest":
+        if self.onboarding is None and self.child_app_tour is None:
+            raise ValueError("At least one of onBoarding or childAppTour must be provided")
+        return self
+
+
 class ChildPublic(BaseModel):
     """List / patch child shape (no pin, no progress)."""
 
@@ -92,6 +105,7 @@ class ChildPublic(BaseModel):
     gender: str
     devices: list[str] = []
     onboarding: bool = Field(False, alias="onBoarding")
+    child_app_tour: bool = Field(False, alias="childAppTour")
 
     model_config = {"populate_by_name": True}
 
@@ -121,6 +135,14 @@ class ChildDetailResponse(BaseModel):
 
 
 class ChildUpdateResponse(BaseModel):
+    success: bool
+    message: str
+    child: ChildPublic
+
+    model_config = {"populate_by_name": True}
+
+
+class ChildAppStateUpdateResponse(BaseModel):
     success: bool
     message: str
     child: ChildPublic

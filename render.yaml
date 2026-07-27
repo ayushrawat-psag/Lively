@@ -33,13 +33,15 @@ services:
         value: alphanumeric
       - key: INVITE_CODE_LENGTH
         value: "6"
-      - key: BREVO_SENDER_NAME
+      - key: CAMPAIGN_MONITOR_SENDER_NAME
         value: Lively
+      - key: CAMPAIGN_MONITOR_SENDER_EMAIL
+        value: support@areyoulively.com
+      - key: CAMPAIGN_MONITOR_CLIENT_ID
+        value: ""
       - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET_KEY
         sync: false
-      - key: BREVO_API_KEY
-        sync: false
-      - key: BREVO_SENDER_EMAIL
+      - key: CAMPAIGN_MONITOR_API_KEY
         sync: false

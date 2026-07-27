@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 from sqlalchemy import delete, select
 
 from app.db.session import SessionLocal
-from app.models.promo_code import PromoCode, PromoCodeRedemption
+from app.models.enums import DiscountType
+from app.models.pricing_plan import PricingPlan
+from app.models.voucher import Voucher, VoucherPricingPlan, VoucherRedemption
 from tests.conftest import signup_user, verify_user
 
 
@@ -16,57 +19,66 @@ def _auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _create_promo(
+def _create_voucher(
     *,
     code: str,
     discount_percent: int = 15,
-    is_active: bool = True,
-    starts_at: datetime | None = None,
-    expires_at: datetime | None = None,
+    active: bool = True,
+    valid_from: datetime | None = None,
+    valid_until: datetime | None = None,
     max_redemptions: int | None = None,
     max_redemptions_per_user: int | None = 1,
-) -> PromoCode:
+) -> Voucher:
     db = SessionLocal()
     try:
-        promo = PromoCode(
+        voucher = Voucher(
             code=code.upper(),
-            discount_percent=discount_percent,
-            is_active=is_active,
-            starts_at=starts_at,
-            expires_at=expires_at,
+            discount_type=DiscountType.PERCENTAGE,
+            discount_value=Decimal(discount_percent),
+            active=active,
+            valid_from=valid_from,
+            valid_until=valid_until,
             max_redemptions=max_redemptions,
             max_redemptions_per_user=max_redemptions_per_user,
         )
-        db.add(promo)
+        db.add(voucher)
+        db.flush()
+
+        plans = list(db.scalars(select(PricingPlan).where(PricingPlan.active.is_(True))).all())
+        for plan in plans:
+            db.add(VoucherPricingPlan(voucher_id=voucher.id, pricing_plan_id=plan.id))
+
         db.commit()
-        db.refresh(promo)
-        # Detach for use outside session
-        db.expunge(promo)
-        return promo
+        db.refresh(voucher)
+        db.expunge(voucher)
+        return voucher
     finally:
         db.close()
 
 
-def _delete_promo(code: str) -> None:
+def _delete_voucher(code: str) -> None:
     db = SessionLocal()
     try:
-        promo = db.scalar(select(PromoCode).where(PromoCode.code == code.upper()))
-        if promo:
+        voucher = db.scalar(select(Voucher).where(Voucher.code == code.upper()))
+        if voucher:
             db.execute(
-                delete(PromoCodeRedemption).where(PromoCodeRedemption.promo_code_id == promo.id)
+                delete(VoucherRedemption).where(VoucherRedemption.voucher_id == voucher.id)
             )
-            db.delete(promo)
+            db.execute(
+                delete(VoucherPricingPlan).where(VoucherPricingPlan.voucher_id == voucher.id)
+            )
+            db.delete(voucher)
             db.commit()
     finally:
         db.close()
 
 
-def _add_redemption(promo_id, user_id) -> None:
+def _add_redemption(voucher_id, user_id) -> None:
     db = SessionLocal()
     try:
         db.add(
-            PromoCodeRedemption(
-                promo_code_id=promo_id if isinstance(promo_id, uuid.UUID) else uuid.UUID(str(promo_id)),
+            VoucherRedemption(
+                voucher_id=voucher_id if isinstance(voucher_id, uuid.UUID) else uuid.UUID(str(voucher_id)),
                 user_id=user_id if isinstance(user_id, uuid.UUID) else uuid.UUID(str(user_id)),
                 redeemed_at=datetime.now(timezone.utc),
             )
@@ -134,7 +146,7 @@ def test_validate_unknown_code(client, tracked_email) -> None:
 
 def test_validate_inactive_code(client, tracked_email) -> None:
     code = f"INACTIVE{uuid.uuid4().hex[:6].upper()}"
-    _create_promo(code=code, is_active=False)
+    _create_voucher(code=code, active=False)
     try:
         token, _ = _verified_token(client, tracked_email)
         response = client.post(
@@ -145,14 +157,14 @@ def test_validate_inactive_code(client, tracked_email) -> None:
         assert response.status_code == 200
         assert response.json()["valid"] is False
     finally:
-        _delete_promo(code)
+        _delete_voucher(code)
 
 
 def test_validate_expired_code(client, tracked_email) -> None:
     code = f"EXPIRED{uuid.uuid4().hex[:6].upper()}"
-    _create_promo(
+    _create_voucher(
         code=code,
-        expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+        valid_until=datetime.now(timezone.utc) - timedelta(days=1),
     )
     try:
         token, _ = _verified_token(client, tracked_email)
@@ -164,14 +176,14 @@ def test_validate_expired_code(client, tracked_email) -> None:
         assert response.status_code == 200
         assert response.json()["valid"] is False
     finally:
-        _delete_promo(code)
+        _delete_voucher(code)
 
 
 def test_validate_not_yet_started(client, tracked_email) -> None:
     code = f"FUTURE{uuid.uuid4().hex[:6].upper()}"
-    _create_promo(
+    _create_voucher(
         code=code,
-        starts_at=datetime.now(timezone.utc) + timedelta(days=7),
+        valid_from=datetime.now(timezone.utc) + timedelta(days=7),
     )
     try:
         token, _ = _verified_token(client, tracked_email)
@@ -183,15 +195,15 @@ def test_validate_not_yet_started(client, tracked_email) -> None:
         assert response.status_code == 200
         assert response.json()["valid"] is False
     finally:
-        _delete_promo(code)
+        _delete_voucher(code)
 
 
 def test_validate_global_redemption_limit(client, tracked_email) -> None:
     code = f"GLOBAL{uuid.uuid4().hex[:6].upper()}"
-    promo = _create_promo(code=code, max_redemptions=1, max_redemptions_per_user=None)
+    voucher = _create_voucher(code=code, max_redemptions=1, max_redemptions_per_user=None)
     try:
         token, user_id = _verified_token(client, tracked_email)
-        _add_redemption(promo.id, user_id)
+        _add_redemption(voucher.id, user_id)
 
         response = client.post(
             "/api/v1/promo-code/validate",
@@ -201,15 +213,15 @@ def test_validate_global_redemption_limit(client, tracked_email) -> None:
         assert response.status_code == 200
         assert response.json()["valid"] is False
     finally:
-        _delete_promo(code)
+        _delete_voucher(code)
 
 
 def test_validate_per_user_redemption_limit(client, tracked_email) -> None:
     code = f"PERUSER{uuid.uuid4().hex[:6].upper()}"
-    promo = _create_promo(code=code, max_redemptions_per_user=1)
+    voucher = _create_voucher(code=code, max_redemptions_per_user=1)
     try:
         token, user_id = _verified_token(client, tracked_email)
-        _add_redemption(promo.id, user_id)
+        _add_redemption(voucher.id, user_id)
 
         response = client.post(
             "/api/v1/promo-code/validate",
@@ -219,4 +231,4 @@ def test_validate_per_user_redemption_limit(client, tracked_email) -> None:
         assert response.status_code == 200
         assert response.json()["valid"] is False
     finally:
-        _delete_promo(code)
+        _delete_voucher(code)

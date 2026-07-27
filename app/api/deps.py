@@ -10,6 +10,7 @@ from app.core.security import decode_access_token
 from app.db.session import get_db
 from app.models.user import User
 from app.repositories.auth_repository import AuthRepository
+from app.repositories.child_repository import ChildRepository
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -46,3 +47,28 @@ def get_current_user(
             detail={"success": False, "message": "Unauthorized"},
         )
     return user
+
+
+def authorize_child_access(
+    child_id: UUID,
+    current_user: User,
+    db: Session,
+) -> User:
+    child_repo = ChildRepository(db)
+
+    if current_user.is_child:
+        if current_user.id != child_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"success": False, "message": "Forbidden"},
+            )
+        child = child_repo.get_active_by_id(child_id)
+    else:
+        child = child_repo.get_active_for_parent(child_id=child_id, parent_user_id=current_user.id)
+
+    if not child:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "message": "Child not found"},
+        )
+    return child

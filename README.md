@@ -59,26 +59,30 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 - Swagger UI: http://127.0.0.1:8000/docs
 - Health: http://127.0.0.1:8000/health
 
-## Email verification (Brevo)
+## Email verification (Campaign Monitor)
 
-Verification codes are stored in Postgres and sent through **Brevo** transactional email.
+Verification codes are stored in Postgres and sent through **Campaign Monitor** classic transactional email.
 
 Add these to `.env`:
 
 ```env
-BREVO_API_KEY=xkeysib-...
-BREVO_SENDER_EMAIL=noreply@yourdomain.com
-BREVO_SENDER_NAME=Lively
+CAMPAIGN_MONITOR_API_KEY=...
+CAMPAIGN_MONITOR_SENDER_EMAIL=support@areyoulively.com
+CAMPAIGN_MONITOR_SENDER_NAME=Lively
+CAMPAIGN_MONITOR_CLIENT_ID=
 ```
 
-Setup in Brevo:
+Setup in Campaign Monitor:
 
-1. Create an API key under **Settings → SMTP & API → API Keys**
-2. Verify the sender email/domain under **Settings → Senders**
+1. Create an API key under **Account Settings → API Keys**
+2. Authenticate the sending domain (`areyoulively.com`) and enable custom authentication for transactional email
+3. Set `CAMPAIGN_MONITOR_CLIENT_ID` if you use an account-level API key (not needed for client-specific keys)
 
-If `BREVO_API_KEY` / `BREVO_SENDER_EMAIL` are empty, the API still works in dev: the code is logged and can be returned in the JSON when `INCLUDE_VERIFICATION_CODE_IN_RESPONSE=true`.
+Signup and resend **do not fail** when Campaign Monitor rejects or cannot deliver email — the account and verification code are still created. The response message indicates whether delivery succeeded. In development, use `verificationCode` from the JSON when `INCLUDE_VERIFICATION_CODE_IN_RESPONSE=true`.
 
-Set `INCLUDE_VERIFICATION_CODE_IN_RESPONSE=false` once Brevo is live in production.
+If `CAMPAIGN_MONITOR_API_KEY` / `CAMPAIGN_MONITOR_SENDER_EMAIL` are empty, the API still works in dev: the code is logged and can be returned in the JSON when `INCLUDE_VERIFICATION_CODE_IN_RESPONSE=true`.
+
+Set `INCLUDE_VERIFICATION_CODE_IN_RESPONSE=false` once email is live in production.
 ## Deploy to Render (dev / Singapore)
 
 Prerequisites:
@@ -112,7 +116,8 @@ Prerequisites:
 
 - `DATABASE_URL` — Neon Lively Dev connection string (`postgresql+psycopg2://...`)
 - `JWT_SECRET_KEY`
-- `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`
+- `CAMPAIGN_MONITOR_API_KEY`, `CAMPAIGN_MONITOR_SENDER_EMAIL`, `CAMPAIGN_MONITOR_SENDER_NAME`
+- `CAMPAIGN_MONITOR_CLIENT_ID` (optional; required for account-level API keys)
 
 ## Tests
 
@@ -127,9 +132,9 @@ Coverage for the current MVP:
 
 - Health check
 - Signup / login / verify / resend (success + error cases)
-- **Full E2E integration** (`test_integration_e2e.py`): DB persistence, Brevo email capture, JWT, contract shapes, Jira ACs
+- **Full E2E integration** (`test_integration_e2e.py`): DB persistence, Campaign Monitor email capture, JWT, contract shapes, Jira ACs
 - Password hashing + JWT helpers
-- Brevo email service (mocked HTTP)
+- Campaign Monitor email service (mocked HTTP)
 
 Run only integration tests:
 
@@ -215,6 +220,15 @@ alembic/versions/            # Migrations
 ## Notes on schema mapping
 
 - API `name` is split into `users.first_name` / `users.last_name`
-- API `guardian: true` maps to `user_type = Parent`
-- `email_verified` and `accepted_terms` are stored on `users` for auth flows
+- API `guardian: true` maps to `user_type = PARENT`
 - Primary keys are UUIDs per the MVP database schema
+
+## App extensions beyond MVP PDF
+
+The database now follows the MVP PDF core schema, with a few app-specific extensions kept intentionally:
+
+- `email_verification_codes` table for email OTP verification
+- `users.email_verified` and `users.accepted_terms` for auth and legal state
+- Child profile fields stored on `users`: `gender`, `devices`, `onboarding`, `child_app_tour`, `deleted_at`
+- `PATCH /api/v1/children/{childId}/app-state` — update `onBoarding` and/or `childAppTour` (parent or child JWT)
+- `voucher_redemptions` table for per-user voucher usage tracking

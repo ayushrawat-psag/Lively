@@ -3,35 +3,41 @@ import logging
 import httpx
 
 from app.core.config import Settings, get_settings
+from app.email_templates import render_email_template
 
 logger = logging.getLogger(__name__)
 
-BREVO_SEND_URL = "https://api.brevo.com/v3/smtp/email"
+CM_CLASSIC_EMAIL_SEND_URL = (
+    "https://api.createsend.com/api/v3.3/transactional/classicEmail/send"
+)
 
 
 class EmailSendError(Exception):
-    """Raised when Brevo fails to accept a transactional email."""
+    """Raised when Campaign Monitor fails to accept a transactional email."""
 
 
 class EmailService:
-    """Sends transactional emails via Brevo REST API."""
+    """Sends transactional emails via Campaign Monitor classic email REST API."""
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
 
     @property
     def is_configured(self) -> bool:
-        return bool(self.settings.brevo_api_key and self.settings.brevo_sender_email)
+        return bool(
+            self.settings.campaign_monitor_api_key
+            and self.settings.campaign_monitor_sender_email
+        )
 
     def send_verification_email(self, *, to_email: str, to_name: str, code: str) -> None:
         subject = "Verify your Lively account"
-        html_content = self._verification_html(to_name=to_name, code=code)
-        text_content = (
-            f"Hi {to_name},\n\n"
-            f"Your Lively verification code is: {code}\n\n"
-            f"This code expires in {self.settings.verification_code_expire_minutes} minutes.\n"
-            "If you did not create an account, you can ignore this email.\n"
-        )
+        context = {
+            "to_name": to_name or "there",
+            "code": code,
+            "expire_minutes": self.settings.verification_code_expire_minutes,
+        }
+        html_content = render_email_template("verification.html", **context)
+        text_content = render_email_template("verification.txt", **context)
         self._send(
             to_email=to_email,
             to_name=to_name,
@@ -51,57 +57,50 @@ class EmailService:
     ) -> None:
         if not self.is_configured:
             logger.warning(
-                "Brevo is not configured (missing BREVO_API_KEY / BREVO_SENDER_EMAIL). "
+                "Campaign Monitor is not configured "
+                "(missing CAMPAIGN_MONITOR_API_KEY / CAMPAIGN_MONITOR_SENDER_EMAIL). "
                 "Skipping send to %s. Subject=%s",
                 to_email,
                 subject,
             )
             return
 
+        sender_name = self.settings.campaign_monitor_sender_name
+        sender_email = self.settings.campaign_monitor_sender_email
+        to_recipient = f"{to_name} <{to_email}>" if to_name else to_email
+
         payload = {
-            "sender": {
-                "email": self.settings.brevo_sender_email,
-                "name": self.settings.brevo_sender_name,
-            },
-            "to": [{"email": to_email, "name": to_name or to_email}],
-            "subject": subject,
-            "htmlContent": html_content,
-            "textContent": text_content,
+            "From": f"{sender_name} <{sender_email}>",
+            "To": [to_recipient],
+            "Subject": subject,
+            "Html": html_content,
+            "Text": text_content,
+            "ConsentToTrack": "Unchanged",
+            "Group": "Account Verification",
         }
-        headers = {
-            "accept": "application/json",
-            "content-type": "application/json",
-            "api-key": self.settings.brevo_api_key,
-        }
+        params = {}
+        if self.settings.campaign_monitor_client_id:
+            params["clientID"] = self.settings.campaign_monitor_client_id
 
         try:
             with httpx.Client(timeout=20.0) as client:
-                response = client.post(BREVO_SEND_URL, headers=headers, json=payload)
+                response = client.post(
+                    CM_CLASSIC_EMAIL_SEND_URL,
+                    json=payload,
+                    params=params or None,
+                    auth=(self.settings.campaign_monitor_api_key, "x"),
+                )
         except httpx.HTTPError as exc:
-            logger.exception("Brevo request failed for %s", to_email)
+            logger.exception("Campaign Monitor request failed for %s", to_email)
             raise EmailSendError("Failed to send verification email") from exc
 
-        if response.status_code not in (200, 201):
+        if response.status_code not in (200, 201, 202):
             logger.error(
-                "Brevo rejected email to %s: status=%s body=%s",
+                "Campaign Monitor rejected email to %s: status=%s body=%s",
                 to_email,
                 response.status_code,
                 response.text,
             )
             raise EmailSendError("Failed to send verification email")
 
-        logger.info("Verification email sent via Brevo to %s", to_email)
-
-    @staticmethod
-    def _verification_html(*, to_name: str, code: str) -> str:
-        safe_name = to_name or "there"
-        return f"""\
-<html>
-  <body style="font-family: Arial, sans-serif; line-height: 1.5; color: #222;">
-    <p>Hi {safe_name},</p>
-    <p>Use this code to verify your Lively account:</p>
-    <p style="font-size: 28px; font-weight: bold; letter-spacing: 4px;">{code}</p>
-    <p>This code expires soon. If you did not sign up for Lively, you can ignore this email.</p>
-  </body>
-</html>
-"""
+        logger.info("Verification email sent via Campaign Monitor to %s", to_email)

@@ -1,7 +1,7 @@
 """
 Full end-to-end integration tests for the auth MVP.
 
-Covers: signup → email verification (DB + Brevo) → login → JWT,
+Covers: signup → email verification (DB + Campaign Monitor) → login → JWT,
 plus error paths and API contract shapes.
 """
 
@@ -17,7 +17,9 @@ from app.core.invite_code import INVITE_CODE_ALPHABET, INVITE_CODE_LENGTH
 from app.core.security import decode_access_token
 from app.db.session import SessionLocal
 from app.models.email_verification import EmailVerificationCode
-from app.models.user import User, UserType
+from app.models.enums import UserType
+from app.models.user import User
+from app.models.user_activity import UserActivity
 from tests.conftest import (
     get_active_codes_for_user,
     get_latest_code_from_db,
@@ -97,12 +99,18 @@ class TestFullE2EAuthFlow:
         assert claims is not None
         assert claims["sub"] == user_id
         assert claims["email"] == tracked_email
-        assert claims["user_type"] == "Parent"
+        assert claims["user_type"] == "PARENT"
 
-        # 7. last_login_at updated
-        user = get_user_from_db(tracked_email)
-        assert user is not None
-        assert user.last_login_at is not None
+        # 7. last_login_at updated in user_activity
+        db = SessionLocal()
+        try:
+            user = db.scalar(select(User).where(User.email == tracked_email))
+            assert user is not None
+            activity = db.scalar(select(UserActivity).where(UserActivity.user_id == user.id))
+            assert activity is not None
+            assert activity.last_login_at is not None
+        finally:
+            db.close()
 
     def test_signup_resend_verify_login_flow(self, client, tracked_email) -> None:
         signup = signup_user(client, tracked_email)
@@ -128,12 +136,12 @@ class TestFullE2EAuthFlow:
 
 
 class TestEmailVerificationIntegration:
-    """Email verification behaviour with DB and Brevo integration."""
+    """Email verification behaviour with DB and Campaign Monitor integration."""
 
-    def test_signup_triggers_brevo_email_with_correct_code(
-        self, brevo_client, tracked_email, email_capture
+    def test_signup_triggers_campaign_monitor_email_with_correct_code(
+        self, campaign_monitor_client, tracked_email, email_capture
     ) -> None:
-        signup = signup_user(brevo_client, tracked_email)
+        signup = signup_user(campaign_monitor_client, tracked_email)
         code = signup["verificationCode"]
 
         assert len(email_capture.sent) == 1
@@ -145,13 +153,13 @@ class TestEmailVerificationIntegration:
         # Code in email matches DB
         assert get_latest_code_from_db(tracked_email) == code
 
-    def test_resend_triggers_new_brevo_email(
-        self, brevo_client, tracked_email, email_capture
+    def test_resend_triggers_new_campaign_monitor_email(
+        self, campaign_monitor_client, tracked_email, email_capture
     ) -> None:
-        signup_user(brevo_client, tracked_email)
+        signup_user(campaign_monitor_client, tracked_email)
         assert len(email_capture.sent) == 1
 
-        resend = brevo_client.post(
+        resend = campaign_monitor_client.post(
             "/api/v1/auth/email/resend",
             json={"email": tracked_email},
         )
@@ -184,11 +192,11 @@ class TestEmailVerificationIntegration:
 
         get_settings.cache_clear()
 
-    def test_signup_returns_502_when_brevo_fails_but_user_exists(
+    def test_signup_succeeds_when_campaign_monitor_fails(
         self, client, tracked_email, monkeypatch
     ) -> None:
-        monkeypatch.setenv("BREVO_API_KEY", "xkeysib-test")
-        monkeypatch.setenv("BREVO_SENDER_EMAIL", "noreply@test.com")
+        monkeypatch.setenv("CAMPAIGN_MONITOR_API_KEY", "cm-test-key")
+        monkeypatch.setenv("CAMPAIGN_MONITOR_SENDER_EMAIL", "noreply@test.com")
         get_settings.cache_clear()
 
         mock_response = MagicMock()
@@ -210,19 +218,23 @@ class TestEmailVerificationIntegration:
                 },
             )
 
-        assert response.status_code == 502
-        assert "failed to send" in response.json()["message"].lower()
+        assert response.status_code == 201
+        body = response.json()
+        assert body["success"] is True
+        assert "could not be sent" in body["message"].lower()
+        assert body.get("verificationCode") is not None
 
-        # User was still created — can resend
         user = get_user_from_db(tracked_email)
         assert user is not None
         assert user.email_verified is False
 
         get_settings.cache_clear()
 
-    def test_brevo_http_error_on_signup_returns_502(self, client, tracked_email, monkeypatch) -> None:
-        monkeypatch.setenv("BREVO_API_KEY", "xkeysib-test")
-        monkeypatch.setenv("BREVO_SENDER_EMAIL", "noreply@test.com")
+    def test_campaign_monitor_http_error_on_signup_still_succeeds(
+        self, client, tracked_email, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("CAMPAIGN_MONITOR_API_KEY", "cm-test-key")
+        monkeypatch.setenv("CAMPAIGN_MONITOR_SENDER_EMAIL", "noreply@test.com")
         get_settings.cache_clear()
 
         with patch("app.services.email_service.httpx.Client") as client_cls:
@@ -240,7 +252,40 @@ class TestEmailVerificationIntegration:
                 },
             )
 
-        assert response.status_code == 502
+        assert response.status_code == 201
+        body = response.json()
+        assert body["success"] is True
+        assert body.get("verificationCode") is not None
+        get_settings.cache_clear()
+
+    def test_resend_succeeds_when_campaign_monitor_fails(
+        self, client, tracked_email, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("CAMPAIGN_MONITOR_API_KEY", "cm-test-key")
+        monkeypatch.setenv("CAMPAIGN_MONITOR_SENDER_EMAIL", "noreply@test.com")
+        get_settings.cache_clear()
+
+        signup_user(client, tracked_email)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_response.text = '{"Code":102,"Message":"Invalid ClientID"}'
+
+        with patch("app.services.email_service.httpx.Client") as client_cls:
+            http = client_cls.return_value.__enter__.return_value
+            http.post.return_value = mock_response
+
+            response = client.post(
+                "/api/v1/auth/email/resend",
+                json={"email": tracked_email},
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["success"] is True
+        assert "could not be sent" in body["message"].lower()
+        assert body.get("verificationCode") is not None
+
         get_settings.cache_clear()
 
     def test_verification_code_marked_used_after_verify(self, client, tracked_email) -> None:
@@ -448,8 +493,8 @@ class TestEdgeCases:
         )
         assert response.status_code == 400
 
-    def test_brevo_not_configured_still_signs_up(self, client, tracked_email) -> None:
-        """Dev fallback: no Brevo creds, signup still works."""
+    def test_campaign_monitor_not_configured_still_signs_up(self, client, tracked_email) -> None:
+        """Dev fallback: no Campaign Monitor creds, signup still works."""
         body = signup_user(client, tracked_email)
         assert body["verificationCode"]
         assert get_user_from_db(tracked_email) is not None
