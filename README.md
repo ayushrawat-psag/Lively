@@ -21,6 +21,7 @@ FastAPI backend for the Lively mobile app.
 | `PATCH` | `/api/v1/children/{childId}` | Update child profile / PIN |
 | `PATCH` | `/api/v1/children/{childId}/app-state` | Update `onBoarding` and/or `childAppTour` (parent or child JWT) |
 | `DELETE` | `/api/v1/children/{childId}` | Soft-delete child |
+| `GET` | `/api/v1/comic` | Fetch all island comics (optional `?islandId=` for one island; Bearer child JWT) |
 | `POST` | `/api/v1/promo-code/validate` | Validate a promo / voucher code (Bearer JWT) |
 
 Social login (`/api/v1/auth/social`) is intentionally out of scope for this iteration.
@@ -312,3 +313,11 @@ The database follows the MVP PDF core schema, with a few app-specific extensions
 - Child profile fields on `users`: `gender`, `devices`, `onboarding`, `child_app_tour`, `deleted_at`, `pin_hash`
 - `PATCH /api/v1/children/{childId}/app-state` — update `onBoarding` and/or `childAppTour` (parent or child JWT)
 - `voucher_redemptions` table for per-user voucher usage tracking
+- `comic_pages` table for island comic page ordering and image URLs
+- `islands.comic_number` stable zero-based public island id (Whirlpool is `0`)
+
+Comic pages store only `image_url` references; binaries should remain in CRM-managed object storage/CDN.
+
+`GET /api/v1/comic` returns every active island that has active comic pages in one response
+so the mobile client can download once. Pass optional `?islandId=0` (the stable
+`comic_number`) to return only that island.

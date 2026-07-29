@@ -1,5 +1,6 @@
 from app.db.base import Base
 from app.models.classroom import Classroom
+from app.models.comic_page import ComicPage
 from app.models.email_verification import EmailVerificationCode
 from app.models.family import Family
 from app.models.habit import Habit
@@ -25,6 +26,7 @@ __all__ = [
     "Family",
     "School",
     "Classroom",
+    "ComicPage",
     "UserActivity",
     "Island",
     "Location",
