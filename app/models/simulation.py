@@ -40,11 +40,17 @@ class Simulation(Base):
         index=True,
     )
     simulation_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    activity_key: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)
     hero_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     simulation_type: Mapped[SimulationType] = mapped_column(
         Enum(SimulationType, name="simulation_type", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
     )
+    question_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    correct_result_title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    correct_result_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    wrong_result_title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    wrong_result_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[ContentStatus] = mapped_column(
         Enum(ContentStatus, name="content_status", create_constraint=False, values_callable=lambda x: [e.value for e in x]),
         nullable=False,

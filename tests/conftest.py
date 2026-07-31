@@ -11,6 +11,8 @@ from app.core.config import get_settings
 from app.core.security import decode_access_token
 from app.db.session import SessionLocal
 from app.main import app
+from app.models.child_island_progress import ChildIslandProgress
+from app.models.child_simulation_progress import ChildSimulationProgress
 from app.models.email_verification import EmailVerificationCode
 from app.models.family import Family
 from app.models.user import User
@@ -98,6 +100,16 @@ def cleanup_user_by_email(email: str) -> None:
                 if child_ids:
                     db.execute(delete(VoucherRedemption).where(VoucherRedemption.user_id.in_(child_ids)))
                     db.execute(delete(UserActivity).where(UserActivity.user_id.in_(child_ids)))
+                    db.execute(
+                        delete(ChildSimulationProgress).where(
+                            ChildSimulationProgress.child_user_id.in_(child_ids)
+                        )
+                    )
+                    db.execute(
+                        delete(ChildIslandProgress).where(
+                            ChildIslandProgress.child_user_id.in_(child_ids)
+                        )
+                    )
                     db.execute(delete(User).where(User.id.in_(child_ids)))
 
                 db.execute(update(User).where(User.family_id == family_id).values(family_id=None))

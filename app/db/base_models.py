@@ -1,9 +1,13 @@
 from app.db.base import Base
+from app.models.child_island_progress import ChildIslandProgress
+from app.models.child_simulation_progress import ChildSimulationProgress
 from app.models.classroom import Classroom
 from app.models.comic_page import ComicPage
 from app.models.email_verification import EmailVerificationCode
 from app.models.family import Family
 from app.models.habit import Habit
+from app.models.habit_step import HabitStep
+from app.models.habit_step_option import HabitStepOption
 from app.models.habit_tracker import HabitTracker
 from app.models.island import Island
 from app.models.learner_permit import LearnerPermit, LearnerPermitBadge
@@ -34,7 +38,11 @@ __all__ = [
     "SimulationAnswer",
     "PrizeItem",
     "Habit",
+    "HabitStep",
+    "HabitStepOption",
     "HabitTracker",
+    "ChildSimulationProgress",
+    "ChildIslandProgress",
     "Reward",
     "UserReward",
     "PricingPlan",

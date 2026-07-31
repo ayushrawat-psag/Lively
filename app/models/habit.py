@@ -12,6 +12,7 @@ from app.db.base import Base
 from app.models.enums import ContentStatus, HabitType
 
 if TYPE_CHECKING:
+    from app.models.habit_step import HabitStep
     from app.models.simulation import Simulation
 
 
@@ -38,6 +39,7 @@ class Habit(Base):
         Enum(HabitType, name="habit_type", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
     )
+    correct_result_title: Mapped[str | None] = mapped_column(String(200), nullable=True)
     status: Mapped[ContentStatus] = mapped_column(
         Enum(ContentStatus, name="content_status", create_constraint=False, values_callable=lambda x: [e.value for e in x]),
         nullable=False,
@@ -56,3 +58,8 @@ class Habit(Base):
     )
 
     simulation: Mapped[Simulation] = relationship("Simulation", back_populates="habits")
+    steps: Mapped[list[HabitStep]] = relationship(
+        "HabitStep",
+        back_populates="habit",
+        order_by="HabitStep.display_order",
+    )

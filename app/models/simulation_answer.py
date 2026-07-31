@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -18,6 +18,7 @@ class SimulationAnswer(Base):
     __tablename__ = "simulation_answers"
     __table_args__ = (
         UniqueConstraint("simulation_id", "option_number", name="uq_simulation_answers_simulation_option"),
+        UniqueConstraint("simulation_id", "answer_key", name="uq_simulation_answers_simulation_answer_key"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -32,6 +33,7 @@ class SimulationAnswer(Base):
         index=True,
     )
     option_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    answer_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
     answer: Mapped[str] = mapped_column(Text, nullable=False)
     feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
     image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
