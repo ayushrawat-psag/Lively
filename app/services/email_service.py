@@ -30,7 +30,7 @@ class EmailService:
         )
 
     def send_verification_email(self, *, to_email: str, to_name: str, code: str) -> None:
-        subject = "Verify your Lively account"
+        subject = "Verify your email"
         context = {
             "to_name": to_name or "there",
             "code": code,

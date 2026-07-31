@@ -63,11 +63,12 @@ def test_send_success_via_campaign_monitor() -> None:
         assert kwargs["auth"] == ("cm-test-key", "x")
         assert kwargs["json"]["From"] == "Lively <noreply@example.com>"
         assert kwargs["json"]["To"] == ["User <user@example.com>"]
+        assert kwargs["json"]["Subject"] == "Verify your email"
         assert kwargs["json"]["ConsentToTrack"] == "Unchanged"
         assert kwargs["json"]["Group"] == "Account Verification"
         assert "4321" in kwargs["json"]["Html"]
         assert "4321" in kwargs["json"]["Text"]
-        assert "expires in 15 minutes" in kwargs["json"]["Text"]
+        assert "expire in 15 mins" in kwargs["json"]["Text"]
 
 
 def test_verification_templates_render_name_and_code() -> None:
@@ -85,8 +86,10 @@ def test_verification_templates_render_name_and_code() -> None:
         code="2468",
         expire_minutes=10,
     )
-    assert "Ada" in html and "2468" in html and "10 minutes" in html
-    assert "Ada" in text and "2468" in text and "10 minutes" in text
+    assert "Ada" in html and "2468" in html and "10 mins" in html
+    assert "Ada" in text and "2468" in text and "10 mins" in text
+    assert "support@areyoulively.com" in html
+    assert "support@areyoulively.com" in text
 
 
 def test_send_includes_client_id_when_configured() -> None:

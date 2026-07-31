@@ -1,13 +1,12 @@
-Hi {{ to_name }}!
+Hi {{ to_name }},
 
-Welcome aboard LiVELY — the digital learner's permit for kids.
+To activate your account, please enter the verification code below in the app:
 
-Your verification code is: {{ code }}
+{{ code }}
+This code will expire in {{ expire_minutes }} mins.
 
-Enter this secret code in the app to verify your parent account and start the adventure.
-This code expires in {{ expire_minutes }} minutes — like a timed mission checkpoint.
+If you didn't sign up for Lively, you can safely ignore this email.
 
-Parent tip: Once verified, you can add kids, share invite codes, and help them earn their Digital License through playful missions.
+Need help? Reach out to us anytime at support@areyoulively.com.
 
-Didn't create a LiVELY account? You can safely ignore this email.
-Questions? support@areyoulively.com
+Team Lively
