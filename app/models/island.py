@@ -40,6 +40,12 @@ class Island(Base):
         unique=True,
         server_default=func.nextval("islands_comic_number_seq"),
     )
+    images_per_page: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

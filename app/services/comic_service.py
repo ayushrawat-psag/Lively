@@ -8,8 +8,6 @@ from app.models.user import User
 from app.repositories.comic_repository import ComicRepository
 from app.schemas.comics import ComicCatalogResponse, ComicIslandPublic, ComicPagePublic
 
-IMAGES_PER_PAGE = 1
-
 
 class ComicService:
     def __init__(self, db: Session) -> None:
@@ -33,7 +31,7 @@ class ComicService:
             islandId=island.comic_number,
             islandName=island.island_name,
             totalPages=len(public_pages),
-            imagesPerPage=IMAGES_PER_PAGE,
+            imagesPerPage=island.images_per_page,
             pages=public_pages,
         )
 

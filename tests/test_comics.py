@@ -49,6 +49,7 @@ def _create_island(
     *,
     island_name: str | None = None,
     comic_number: int | None = None,
+    images_per_page: int = 1,
     active: bool = True,
 ) -> Island:
     db = SessionLocal()
@@ -57,6 +58,7 @@ def _create_island(
             island_name=island_name or f"Island-{uuid.uuid4().hex[:8]}",
             status=ContentStatus.ACTIVE if active else ContentStatus.INACTIVE,
             display_order=0,
+            images_per_page=images_per_page,
         )
         if comic_number is not None:
             island.comic_number = comic_number
@@ -145,7 +147,11 @@ def test_get_comic_returns_all_islands_nested_contract(client, tracked_email) ->
     first_number = _next_free_comic_number()
     second_number = first_number + 1
 
-    whirlpool = _create_island(island_name=f"Whirlpool-{uuid.uuid4().hex[:6]}", comic_number=first_number)
+    whirlpool = _create_island(
+        island_name=f"Whirlpool-{uuid.uuid4().hex[:6]}",
+        comic_number=first_number,
+        images_per_page=2,
+    )
     other = _create_island(island_name=f"Lagoon-{uuid.uuid4().hex[:6]}", comic_number=second_number)
 
     _add_comic_page(
@@ -183,14 +189,15 @@ def test_get_comic_returns_all_islands_nested_contract(client, tracked_email) ->
     assert second_number in by_id
 
     first = by_id[first_number]
+    second = by_id[second_number]
     assert first["islandName"] == whirlpool.island_name
     assert first["totalPages"] == 2
-    assert first["imagesPerPage"] == 1
+    assert first["imagesPerPage"] == 2
+    assert second["imagesPerPage"] == 1
     assert [page["order"] for page in first["pages"]] == [1, 2]
     assert first["pages"][0]["imageUrl"].endswith("w-1.png")
     assert set(first["pages"][0].keys()) == {"id", "imageUrl", "order"}
 
-    second = by_id[second_number]
     assert second["totalPages"] == 1
     assert second["pages"][0]["imageUrl"].endswith("l-1.png")
 

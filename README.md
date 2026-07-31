@@ -315,6 +315,7 @@ The database follows the MVP PDF core schema, with a few app-specific extensions
 - `voucher_redemptions` table for per-user voucher usage tracking
 - `comic_pages` table for island comic page ordering and image URLs
 - `islands.comic_number` stable zero-based public island id (Whirlpool is `0`)
+- `islands.images_per_page` CRM-managed images-per-page value returned as `imagesPerPage`
 
 Comic pages store only `image_url` references; binaries should remain in CRM-managed object storage/CDN.
 

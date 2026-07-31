@@ -16,6 +16,7 @@ TABLES = [
     "habits",
     "prize_items",
     "simulations",
+    "comic_pages",
     "locations",
     "islands",
     "voucher_pricing_plans",
