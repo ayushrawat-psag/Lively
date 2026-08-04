@@ -35,6 +35,8 @@ class HabitStep(Base):
     step_key: Mapped[str] = mapped_column(String(100), nullable=False)
     step_type: Mapped[str] = mapped_column(String(50), nullable=False)
     question: Mapped[str] = mapped_column(Text, nullable=False)
+    image_key: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    button_text: Mapped[str | None] = mapped_column(String(100), nullable=True)
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

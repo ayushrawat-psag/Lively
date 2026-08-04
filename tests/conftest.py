@@ -12,6 +12,7 @@ from app.core.security import decode_access_token
 from app.db.session import SessionLocal
 from app.main import app
 from app.models.child_island_progress import ChildIslandProgress
+from app.models.child_habit_fridge_inventory import ChildHabitFridgeInventory
 from app.models.child_habit_preference import ChildHabitPreference
 from app.models.child_simulation_progress import ChildSimulationProgress
 from app.models.email_verification import EmailVerificationCode
@@ -105,6 +106,11 @@ def cleanup_user_by_email(email: str) -> None:
                     db.execute(
                         delete(ChildHabitPreference).where(
                             ChildHabitPreference.child_user_id.in_(child_ids)
+                        )
+                    )
+                    db.execute(
+                        delete(ChildHabitFridgeInventory).where(
+                            ChildHabitFridgeInventory.child_user_id.in_(child_ids)
                         )
                     )
                     db.execute(delete(HabitTracker).where(HabitTracker.user_id.in_(child_ids)))

@@ -31,9 +31,11 @@ class Habit(Base):
         nullable=False,
         index=True,
     )
+    habit_key: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)
     header_text: Mapped[str] = mapped_column(String(200), nullable=False)
     header_icon_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     body_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    card_color: Mapped[str | None] = mapped_column(String(32), nullable=True)
     stars_to_earn: Mapped[int] = mapped_column(Integer, nullable=False)
     habit_type: Mapped[HabitType] = mapped_column(
         Enum(HabitType, name="habit_type", values_callable=lambda x: [e.value for e in x]),

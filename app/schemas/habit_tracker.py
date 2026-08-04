@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -78,10 +78,38 @@ class CompleteHabitRequest(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class FridgeInventoryQuantities(BaseModel):
+    fries: int = 0
+    mussels: int = 0
+    sardini: int = 0
+
+    model_config = {"populate_by_name": True}
+
+
+class HabitCompletionInfo(BaseModel):
+    completed_date: date = Field(..., alias="completedDate")
+    streak_continued: bool = Field(..., alias="streakContinued")
+    streak_reset: bool = Field(..., alias="streakReset")
+
+    model_config = {"populate_by_name": True}
+
+
+class HabitRewardInfo(BaseModel):
+    icon: str
+    attempted_quantity: int = Field(..., alias="attemptedQuantity")
+    added_quantity: int = Field(..., alias="addedQuantity")
+    inventory_limit_reached: bool = Field(..., alias="inventoryLimitReached")
+
+    model_config = {"populate_by_name": True}
+
+
 class CompleteHabitData(BaseModel):
+    child_id: str = Field(..., alias="childId")
     habit_id: str = Field(..., alias="habitId")
-    default_activity_id: str = Field(..., alias="defaultActivityId")
-    completed_dates: list[date] = Field(..., alias="completedDates")
+    completion: HabitCompletionInfo
+    reward: HabitRewardInfo
+    inventory: FridgeInventoryQuantities
+    updated_at: datetime = Field(..., alias="updatedAt")
 
     model_config = {"populate_by_name": True}
 

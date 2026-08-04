@@ -42,7 +42,8 @@ def _create_parent_and_child(client, email: str) -> tuple[str, str, str]:
 def _first_habit_and_activity(habit_tracker_payload: dict) -> tuple[str, str]:
     habit_catalog = habit_tracker_payload["habitCatalog"]
     assert habit_catalog
-    first_habit = next(iter(habit_catalog.values()))
+    assert "body_checkin" in habit_catalog
+    first_habit = habit_catalog["body_checkin"]
     habit_id = first_habit["habitId"]
     activities = first_habit["activities"]
     assert activities
@@ -57,8 +58,8 @@ def test_habit_tracker_requires_auth(client) -> None:
         client.post(
             f"/api/v1/children/{fake_id}/habit-tracker/complete",
             json={
-                "habitId": str(uuid.uuid4()),
-                "defaultActivityId": str(uuid.uuid4()),
+                "habitId": "body_checkin",
+                "defaultActivityId": "heart_beat",
                 "date": "2026-08-03",
             },
         ).status_code
@@ -80,9 +81,10 @@ def test_get_habit_tracker_as_child(client, tracked_email) -> None:
 
     tracker = body["data"]["habitTracker"]
     assert tracker["child"]["childId"] == child_id
-    assert isinstance(tracker["habitCatalog"], dict)
-    assert len(tracker["habitCatalog"]) >= 1
-    assert isinstance(tracker["child"]["habits"], list)
+    assert "body_checkin" in tracker["habitCatalog"]
+    assert tracker["habitCatalog"]["body_checkin"]["defaultActivityId"] == "heart_beat"
+    assert tracker["habitCatalog"]["body_checkin"]["cardColor"] == "#89C27D"
+    assert "focus" in tracker["habitCatalog"]
 
 
 def test_get_habit_tracker_as_parent(client, tracked_email) -> None:
@@ -108,7 +110,7 @@ def test_get_habit_tracker_forbidden_for_other_child(client, tracked_email) -> N
     assert response.json()["success"] is False
 
 
-def test_complete_habit_and_avoid_duplicate_dates(client, tracked_email) -> None:
+def test_complete_habit_rewards_and_idempotent(client, tracked_email) -> None:
     _parent_token, child_token, child_id = _create_parent_and_child(client, tracked_email)
     details = client.get(
         f"/api/v1/children/{child_id}/habit-tracker",
@@ -130,8 +132,12 @@ def test_complete_habit_and_avoid_duplicate_dates(client, tracked_email) -> None
     assert response_one.status_code == 200, response_one.text
     data_one = response_one.json()["data"]
     assert data_one["habitId"] == habit_id
-    assert data_one["defaultActivityId"] == activity_id
-    assert data_one["completedDates"].count("2026-08-03") == 1
+    assert data_one["childId"] == child_id
+    assert data_one["completion"]["completedDate"] == "2026-08-03"
+    assert data_one["reward"]["icon"] == "fries"
+    assert data_one["reward"]["attemptedQuantity"] == 3
+    assert data_one["reward"]["addedQuantity"] == 3
+    assert data_one["inventory"]["fries"] == 3
 
     response_two = client.post(
         f"/api/v1/children/{child_id}/habit-tracker/complete",
@@ -140,23 +146,44 @@ def test_complete_habit_and_avoid_duplicate_dates(client, tracked_email) -> None
     )
     assert response_two.status_code == 200, response_two.text
     data_two = response_two.json()["data"]
-    assert data_two["completedDates"].count("2026-08-03") == 1
+    assert data_two["inventory"]["fries"] == 3
+    assert data_two["reward"]["addedQuantity"] == 0
+
+
+def test_complete_habit_streak_continues(client, tracked_email) -> None:
+    _parent_token, child_token, child_id = _create_parent_and_child(client, tracked_email)
+    payload_base = {
+        "habitId": "body_checkin",
+        "defaultActivityId": "heart_beat",
+    }
+    first = client.post(
+        f"/api/v1/children/{child_id}/habit-tracker/complete",
+        json={**payload_base, "date": "2026-08-01"},
+        headers=_auth_headers(child_token),
+    )
+    assert first.status_code == 200, first.text
+
+    second = client.post(
+        f"/api/v1/children/{child_id}/habit-tracker/complete",
+        json={**payload_base, "date": "2026-08-02"},
+        headers=_auth_headers(child_token),
+    )
+    assert second.status_code == 200, second.text
+    data = second.json()["data"]
+    assert data["completion"]["streakContinued"] is True
+    assert data["completion"]["streakReset"] is False
+    assert data["reward"]["icon"] == "fries"
+    assert data["inventory"]["fries"] == 6
 
 
 def test_complete_habit_with_invalid_activity(client, tracked_email) -> None:
     _parent_token, child_token, child_id = _create_parent_and_child(client, tracked_email)
-    details = client.get(
-        f"/api/v1/children/{child_id}/habit-tracker",
-        headers=_auth_headers(child_token),
-    )
-    assert details.status_code == 200, details.text
-    habit_id, _activity_id = _first_habit_and_activity(details.json()["data"]["habitTracker"])
 
     response = client.post(
         f"/api/v1/children/{child_id}/habit-tracker/complete",
         json={
-            "habitId": habit_id,
-            "defaultActivityId": str(uuid.uuid4()),
+            "habitId": "body_checkin",
+            "defaultActivityId": "not_a_real_activity",
             "date": "2026-08-03",
         },
         headers=_auth_headers(child_token),
