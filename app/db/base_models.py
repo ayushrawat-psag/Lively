@@ -1,4 +1,5 @@
 from app.db.base import Base
+from app.models.child_habit_preference import ChildHabitPreference
 from app.models.child_island_progress import ChildIslandProgress
 from app.models.child_simulation_progress import ChildSimulationProgress
 from app.models.classroom import Classroom
@@ -41,6 +42,7 @@ __all__ = [
     "HabitStep",
     "HabitStepOption",
     "HabitTracker",
+    "ChildHabitPreference",
     "ChildSimulationProgress",
     "ChildIslandProgress",
     "Reward",
