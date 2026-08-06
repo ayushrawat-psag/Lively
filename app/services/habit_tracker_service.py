@@ -29,7 +29,7 @@ from app.schemas.habit_tracker import (
 )
 
 INVENTORY_LIMIT = 9
-REWARD_ATTEMPTED = 3
+REWARD_ATTEMPTED = 9
 
 
 class HabitTrackerService:

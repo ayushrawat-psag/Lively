@@ -79,7 +79,7 @@ def test_fridge_inventory_after_complete_and_consume(client, tracked_email) -> N
         headers=_auth_headers(child_token),
     )
     assert one.status_code == 200, one.text
-    assert one.json()["data"]["inventory"]["fries"] == 3
+    assert one.json()["data"]["inventory"]["fries"] == 9
 
     consume = client.patch(
         f"/api/v1/children/{child_id}/fridge-inventory/habits/body_checkin/consume",
@@ -87,7 +87,7 @@ def test_fridge_inventory_after_complete_and_consume(client, tracked_email) -> N
         headers=_auth_headers(child_token),
     )
     assert consume.status_code == 200, consume.text
-    assert consume.json()["data"]["inventory"]["fries"] == 2
+    assert consume.json()["data"]["inventory"]["fries"] == 8
     assert consume.json()["data"]["consumed"]["quantity"] == 1
 
 

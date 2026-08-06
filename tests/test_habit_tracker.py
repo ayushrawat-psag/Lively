@@ -135,9 +135,9 @@ def test_complete_habit_rewards_and_idempotent(client, tracked_email) -> None:
     assert data_one["childId"] == child_id
     assert data_one["completion"]["completedDate"] == "2026-08-03"
     assert data_one["reward"]["icon"] == "fries"
-    assert data_one["reward"]["attemptedQuantity"] == 3
-    assert data_one["reward"]["addedQuantity"] == 3
-    assert data_one["inventory"]["fries"] == 3
+    assert data_one["reward"]["attemptedQuantity"] == 9
+    assert data_one["reward"]["addedQuantity"] == 9
+    assert data_one["inventory"]["fries"] == 9
 
     response_two = client.post(
         f"/api/v1/children/{child_id}/habit-tracker/complete",
@@ -146,7 +146,7 @@ def test_complete_habit_rewards_and_idempotent(client, tracked_email) -> None:
     )
     assert response_two.status_code == 200, response_two.text
     data_two = response_two.json()["data"]
-    assert data_two["inventory"]["fries"] == 3
+    assert data_two["inventory"]["fries"] == 9
     assert data_two["reward"]["addedQuantity"] == 0
 
 
@@ -173,7 +173,7 @@ def test_complete_habit_streak_continues(client, tracked_email) -> None:
     assert data["completion"]["streakContinued"] is True
     assert data["completion"]["streakReset"] is False
     assert data["reward"]["icon"] == "fries"
-    assert data["inventory"]["fries"] == 6
+    assert data["inventory"]["fries"] == 9
 
 
 def test_complete_habit_with_invalid_activity(client, tracked_email) -> None:
